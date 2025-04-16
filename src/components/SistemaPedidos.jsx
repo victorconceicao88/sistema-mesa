@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { FiCoffee, FiUser, FiPlus, FiMinus, FiTrash2, FiPrinter, FiCheck, FiX, FiArrowLeft } from 'react-icons/fi';
 import { FaUtensils, FaGlassCheers, FaIceCream, FaWineGlassAlt, FaClock } from 'react-icons/fa';
 import { initializeApp } from 'firebase/app';
+// eslint-disable-next-line
 import { getDatabase, ref, push, set, onValue, off, update } from 'firebase/database';
+
 
 const firebaseConfig = {
   apiKey: "AIzaSyBbJmwq5Ia68S3UPhnaUerEl0paRdXQNqM",
@@ -254,30 +256,48 @@ const SistemaPedidos = () => {
     ]
   };
 
-  useEffect(() => {
-    const mesasRef = ref(database, 'mesas');
-    const listener = onValue(mesasRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        setMesas(Object.keys(data).map(key => ({ id: key, ...data[key] })));
+// Atualize o useEffect que escuta as mesas para:
+useEffect(() => {
+  const mesasRef = ref(database, 'mesas');
+  const listener = onValue(mesasRef, (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      const mesasAtualizadas = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+      setMesas(mesasAtualizadas);
+      
+      // Atualiza a mesa selecionada se existir
+      if (mesaSelecionada) {
+        const mesaAtual = mesasAtualizadas.find(m => m.id === mesaSelecionada.id);
+        if (mesaAtual) {
+          setMesaSelecionada(mesaAtual);
+          // IMPORTANTE: Atualiza o pedido em andamento com os dados do Firebase
+          setPedidoEmAndamento(mesaAtual.pedidos || []);
+        }
       }
-    });
-    return () => off(mesasRef, 'value', listener);
-  }, []);
-
-  useEffect(() => {
-    if (mesaSelecionada?.horaAbertura) {
-      const calcularTempo = () => {
-        const diff = Math.floor((new Date() - new Date(mesaSelecionada.horaAbertura)) / 1000);
-        setTempoAtendimento(
-          `${Math.floor(diff / 60).toString().padStart(2, '0')}:${(diff % 60).toString().padStart(2, '0')}`
-        );
-      };
-      calcularTempo();
-      const interval = setInterval(calcularTempo, 1000);
-      return () => clearInterval(interval);
     }
-  }, [mesaSelecionada]);
+  });
+  
+  return () => off(mesasRef, 'value', listener);
+}, [mesaSelecionada?.id]);
+
+useEffect(() => {
+  if (mesaSelecionada?.horaAbertura) {
+    const calcularTempo = () => {
+      const diff = Math.floor((new Date() - new Date(mesaSelecionada.horaAbertura)) / 1000);
+      const minutos = Math.floor(diff / 60);
+      const segundos = Math.floor(diff % 60);
+      setTempoAtendimento(
+        `${minutos.toString().padStart(2, '0')}:${segundos.toString().padStart(2, '0')}`
+      );
+    };
+    
+    calcularTempo();
+    const interval = setInterval(calcularTempo, 1000);
+    return () => clearInterval(interval);
+  } else {
+    setTempoAtendimento('00:00');
+  }
+}, [mesaSelecionada?.horaAbertura]);
 
   useEffect(() => {
     setTotalConta(pedidoEmAndamento.reduce((sum, item) => sum + (item.preco * item.quantidade), 0));
@@ -293,11 +313,30 @@ const SistemaPedidos = () => {
     setTelaAtiva('mesas');
   };
 
-  const selecionarMesa = (mesa) => {
-    setMesaSelecionada(mesa);
-    setPedidoEmAndamento(mesa.pedidos || []);
+  const selecionarMesa = async (mesa) => {
+    // Se a mesa não está ocupada, marca como ocupada
+    if (!mesa.ocupada) {
+      const mesaAtualizada = {
+        ...mesa,
+        ocupada: true,
+        horaAbertura: new Date().toISOString(),
+        pedidos: [],
+        total: 0
+      };
+      
+      try {
+        await update(ref(database, `mesas/${mesa.id}`), mesaAtualizada);
+        setMesaSelecionada(mesaAtualizada);
+        setPedidoEmAndamento([]);
+      } catch (error) {
+        console.error("Erro ao atualizar mesa:", error);
+        mostrarNotificacao('Erro ao abrir mesa', 'erro');
+      }
+    } else {
+      setMesaSelecionada(mesa);
+      setPedidoEmAndamento(mesa.pedidos || []);
+    }
   };
-
   const abrirCustomizacao = (item) => {
     setCustomizacaoItem({
       ...item,
@@ -311,23 +350,28 @@ const SistemaPedidos = () => {
 
   const toggleOpcao = (tipo, index) => {
     setCustomizacaoItem(prev => {
-      const newItem = { ...prev };
+      if (!prev || !prev.opcoes) return prev;
+      
+      // Cria uma cópia profunda do item e suas opções
+      const newItem = JSON.parse(JSON.stringify(prev));
       
       // Tratamento especial para carnes no Churrasco Misto
-      if (tipo === 'carnes' && newItem.opcoes.carnes[index].nome === 'Só maminha') {
-        if (newItem.opcoes.carnes[index].selecionado) {
-          // Se estiver desmarcando "Só maminha", não faz nada especial
-          newItem.opcoes.carnes[index].selecionado = false;
-        } else {
-          // Se estiver marcando "Só maminha", desmarca todas as outras carnes
-          newItem.opcoes.carnes.forEach(c => {
-            c.selecionado = c.nome === 'Só maminha';
-          });
-        }
+      if (tipo === 'carnes' && newItem.opcoes.carnes?.[index]?.nome === 'Só maminha') {
+        const isSelected = newItem.opcoes.carnes[index].selecionado;
+        
+        // Alterna o estado de "Só maminha" e desmarca todas as outras
+        newItem.opcoes.carnes.forEach(c => {
+          c.selecionado = c.nome === 'Só maminha' ? !isSelected : false;
+        });
       } 
-      // Se marcar qualquer outra carne, desmarca "Só maminha"
-      else if (tipo === 'carnes' && newItem.opcoes.carnes[index].nome !== 'Só maminha') {
-        newItem.opcoes.carnes[0].selecionado = false; // "Só maminha" é sempre o primeiro
+      // Se marcar qualquer outra carne
+      else if (tipo === 'carnes' && newItem.opcoes.carnes?.[index]?.nome !== 'Só maminha') {
+        // Desmarca "Só maminha" se estiver marcada
+        if (newItem.opcoes.carnes[0].selecionado) {
+          newItem.opcoes.carnes[0].selecionado = false;
+        }
+        
+        // Alterna o estado da carne selecionada
         newItem.opcoes.carnes[index].selecionado = !newItem.opcoes.carnes[index].selecionado;
         
         // Limita a 2 carnes selecionadas (exceto "Só maminha")
@@ -339,24 +383,28 @@ const SistemaPedidos = () => {
           newItem.opcoes.carnes[index].selecionado = false;
         }
       }
-      // Tratamento especial para tipos de açaí
-      else if (tipo === 'tipo') {
+      // Tratamento especial para tipos de açaí (radio buttons)
+      else if (tipo === 'tipo' && newItem.opcoes.tipo?.[index]) {
+        // Marca apenas o tipo selecionado e desmarca os outros
         newItem.opcoes.tipo.forEach((t, i) => {
           t.selecionado = i === index;
         });
         
+        // Se for "Completo", marca todos os adicionais
         if (newItem.opcoes.tipo[index].nome === 'Completo') {
-          newItem.opcoes.adicionais.forEach(a => {
+          newItem.opcoes.adicionais?.forEach(a => {
             a.selecionado = true;
           });
-        } else if (newItem.opcoes.tipo[index].nome === 'Açaí puro') {
-          newItem.opcoes.adicionais.forEach(a => {
+        } 
+        // Se for "Açaí puro", desmarca todos os adicionais
+        else if (newItem.opcoes.tipo[index].nome === 'Açaí puro') {
+          newItem.opcoes.adicionais?.forEach(a => {
             a.selecionado = false;
           });
         }
       }
       // Para todas as outras opções (checkboxes normais)
-      else {
+      else if (newItem.opcoes[tipo]?.[index]) {
         newItem.opcoes[tipo][index].selecionado = !newItem.opcoes[tipo][index].selecionado;
       }
       
@@ -430,14 +478,47 @@ const SistemaPedidos = () => {
             ? { ...i, quantidade: i.quantidade + 1 } 
             : i
         )
-      : [...pedidoEmAndamento, { ...item, quantidade: 1 }]
+      : [...pedidoEmAndamento, { ...item, quantidade: 1, enviado: false }]
     );
     mostrarNotificacao(`${item.nome} adicionado`);
   };
 
-  const removerItem = (id) => {
-    setPedidoEmAndamento(pedidoEmAndamento.filter(item => item.id !== id));
+  const removerItem = async (id, observacoes = '') => {
+    try {
+      // Filtra os itens mantendo apenas os que NÃO correspondem ao item a ser removido
+      const novosPedidos = pedidoEmAndamento.filter(item => {
+        // Comparação básica para itens não customizados
+        if (!item.observacoes && !observacoes) {
+          return item.id !== id;
+        }
+        // Comparação completa para itens customizados
+        return !(item.id === id && item.observacoes === observacoes);
+      });
+  
+      // Atualiza o estado local imediatamente para feedback visual
+      setPedidoEmAndamento(novosPedidos);
+  
+      // Prepara os dados para atualização no Firebase
+      const atualizacao = {
+        pedidos: novosPedidos,
+        itensCozinha: novosPedidos.filter(item => item.categoria !== 'bebidas'),
+        itensBar: novosPedidos.filter(item => item.categoria === 'bebidas'),
+        total: novosPedidos.reduce((sum, item) => sum + (item.preco * item.quantidade), 0)
+      };
+  
+      // Atualiza no Firebase
+      await update(ref(database, `mesas/${mesaSelecionada.id}`), atualizacao);
+      
+      mostrarNotificacao('Item removido com sucesso');
+  
+    } catch (error) {
+      console.error("Erro ao remover item:", error);
+      mostrarNotificacao('Erro ao remover item', 'erro');
+      // Reverte para o estado anterior em caso de erro
+      setPedidoEmAndamento([...pedidoEmAndamento]);
+    }
   };
+  
 
   const ajustarQuantidade = (id, incremento) => {
     setPedidoEmAndamento(pedidoEmAndamento.map(item => {
@@ -465,116 +546,200 @@ const SistemaPedidos = () => {
       mostrarNotificacao('Adicione itens ao pedido', 'erro');
       return;
     }
-
-    // Filtra itens para cozinha (churrasco, burgers, porcoes, sobremesas)
-    const itensCozinha = pedidoEmAndamento.filter(item => 
-      item.categoria === 'churrasco' || 
-      item.categoria === 'burgers' || 
-      item.categoria === 'porcoes' || 
-      item.categoria === 'sobremesas'
-    );
-
-    // Se estiver na aba cozinha e houver itens para cozinha, mostra confirmação
-    if (abaPedidosAtiva === 'cozinha' && itensCozinha.length > 0) {
-      setMostrarConfirmacaoCozinha(true);
-      return;
+  
+    const mesaAtualizada = {
+      ...mesaSelecionada,
+      ocupada: true, // Garante que a mesa está marcada como ocupada
+      pedidos: pedidoEmAndamento,
+      itensCozinha: pedidoEmAndamento.filter(item => 
+        item.categoria !== 'bebidas'
+      ),
+      itensBar: pedidoEmAndamento.filter(item => 
+        item.categoria === 'bebidas'
+      ),
+      total: pedidoEmAndamento.reduce((sum, item) => sum + (item.preco * item.quantidade), 0),
+      horaAbertura: mesaSelecionada.horaAbertura || new Date().toISOString() // Mantém ou cria a hora de abertura
+    };
+  
+    try {
+      await update(ref(database, `mesas/${mesaSelecionada.id}`), mesaAtualizada);
+      setMesaSelecionada(mesaAtualizada);
+      
+      const itensCozinha = pedidoEmAndamento.filter(item => 
+        ['churrasco', 'burgers', 'porcoes', 'sobremesas'].includes(item.categoria)
+      );
+  
+      if (abaPedidosAtiva === 'cozinha' && itensCozinha.length > 0) {
+        setMostrarConfirmacaoCozinha(true);
+      } else {
+        mostrarNotificacao(`Pedido atualizado - Mesa ${mesaSelecionada.numero}`);
+      }
+    } catch (error) {
+      console.error("Erro ao salvar pedido:", error);
+      mostrarNotificacao('Erro ao salvar pedido', 'erro');
     }
-
-    // Continua com o processo normal se não for cozinha
-    enviarPedidoParaFirebase();
   };
 
   const enviarPedidoParaFirebase = async () => {
-    const itensCozinha = pedidoEmAndamento.filter(item => 
-      item.categoria === 'churrasco' || 
-      item.categoria === 'burgers' || 
-      item.categoria === 'porcoes' || 
-      item.categoria === 'sobremesas'
-    );
-
-    const itensBar = pedidoEmAndamento.filter(item => 
-      item.categoria === 'bebidas'
-    );
-
-    const mesaAtualizada = {
-      ...mesaSelecionada,
-      ocupada: true,
-      pedidos: pedidoEmAndamento,
-      total: totalConta,
-      horaAbertura: mesaSelecionada.horaAbertura || new Date().toISOString(),
-      itensCozinha,
-      itensBar
-    };
-
-    if (await atualizarMesaNoFirebase(mesaAtualizada)) {
+    try {
+      // Filtra apenas itens não enviados
+      const novosItens = pedidoEmAndamento
+        .filter(item => !item.enviado)
+        .map(item => ({ ...item, enviado: true }));
+  
+      if (novosItens.length === 0) {
+        mostrarNotificacao('Nenhum item novo para enviar');
+        setMostrarConfirmacaoCozinha(false);
+        return;
+      }
+  
+      const mesaAtualizada = {
+        ...mesaSelecionada,
+        pedidos: [
+          ...mesaSelecionada.pedidos.filter(item => item.enviado), // Mantém só os já enviados
+          ...novosItens // Adiciona os novos
+        ],
+        itensCozinha: [
+          ...(mesaSelecionada.itensCozinha || []).filter(item => item.enviado),
+          ...novosItens.filter(item => item.categoria !== 'bebidas')
+        ],
+        itensBar: [
+          ...(mesaSelecionada.itensBar || []).filter(item => item.enviado),
+          ...novosItens.filter(item => item.categoria === 'bebidas')
+        ]
+      };
+  
+      await update(ref(database, `mesas/${mesaSelecionada.id}`), mesaAtualizada);
+      
       setMesaSelecionada(mesaAtualizada);
+      setPedidoEmAndamento(mesaAtualizada.pedidos);
       setMostrarConfirmacaoCozinha(false);
       mostrarNotificacao(`Pedido enviado - Mesa ${mesaSelecionada.numero}`);
+  
+    } catch (error) {
+      console.error("Erro ao enviar pedido:", error);
+      mostrarNotificacao('Erro ao enviar pedido', 'erro');
     }
   };
-
   const fecharConta = async () => {
-    // Mostra resumo antes de fechar
-    if (!mostrarResumoFechamento) {
-      setMostrarResumoFechamento(true);
-      return;
-    }
-
-    const mesaAtualizada = {
-      ...mesaSelecionada,
-      ocupada: false,
-      pedidos: [],
-      total: 0,
-      horaAbertura: null
-    };
-
-    if (await atualizarMesaNoFirebase(mesaAtualizada)) {
+    try {
+      if (!mostrarResumoFechamento) {
+        // Se não tem itens, fecha direto sem mostrar resumo
+        if (pedidoEmAndamento.length === 0) {
+          const mesaAtualizada = {
+            ...mesaSelecionada,
+            ocupada: false,
+            pedidos: [],
+            total: 0,
+            horaAbertura: null
+          };
+          
+          await update(ref(database, `mesas/${mesaSelecionada.id}`), mesaAtualizada);
+          setMesaSelecionada(null);
+          setPedidoEmAndamento([]);
+          mostrarNotificacao(`Mesa ${mesaSelecionada.numero} fechada`);
+          return;
+        }
+        
+        setMostrarResumoFechamento(true);
+        return;
+      }
+  
+      const mesaAtualizada = {
+        ...mesaSelecionada,
+        ocupada: false,
+        pedidos: [],
+        total: 0,
+        horaAbertura: null
+      };
+  
+      await update(ref(database, `mesas/${mesaSelecionada.id}`), mesaAtualizada);
+      
       setMesaSelecionada(null);
       setPedidoEmAndamento([]);
       setMostrarResumoFechamento(false);
       mostrarNotificacao(`Conta fechada - Mesa ${mesaSelecionada.numero}`);
+      
+    } catch (error) {
+      console.error("Erro ao fechar conta:", error);
+      mostrarNotificacao('Erro ao fechar conta', 'erro');
     }
   };
 
-  const ModalConfirmacaoCozinha = () => (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-        <h3 className="text-xl font-bold mb-4">Confirmar envio para cozinha</h3>
-        <div className="max-h-64 overflow-y-auto mb-6 border rounded p-3">
-          {pedidoEmAndamento
-            .filter(item => 
-              item.categoria === 'churrasco' || 
-              item.categoria === 'burgers' || 
-              item.categoria === 'porcoes' || 
-              item.categoria === 'sobremesas'
-            )
-            .map(item => (
-              <div key={`${item.id}-${item.observacoes || ''}`} className="flex justify-between py-2 border-b last:border-b-0">
-                <div>
-                  <div>{item.nome} x {item.quantidade}</div>
-                  {item.observacoes && <div className="text-xs text-gray-600">{item.observacoes}</div>}
+  const ModalConfirmacaoCozinha = () => {
+    const modalContentRef = React.useRef(null);
+  
+    // Bloqueia o scroll da página quando a modal está aberta
+    React.useEffect(() => {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }, []);
+  
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[90vh] flex flex-col">
+          <div className="p-6">
+            <h3 className="text-xl font-bold mb-4">Confirmar envio para cozinha</h3>
+          </div>
+          
+          <div 
+            ref={modalContentRef}
+            className="overflow-y-auto px-6 border-t border-b"
+            style={{ maxHeight: '60vh' }}
+          >
+            {pedidoEmAndamento
+              .filter(item => 
+                item.categoria === 'churrasco' || 
+                item.categoria === 'burgers' || 
+                item.categoria === 'porcoes' || 
+                item.categoria === 'sobremesas'
+              )
+              .map(item => (
+                <div key={`${item.id}-${item.observacoes || ''}`} className="flex justify-between items-center py-3 border-b last:border-b-0">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center truncate">
+                      <span className="truncate">{item.nome} x {item.quantidade}</span>
+                      {item.enviado && (
+                        <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full ml-2 whitespace-nowrap">
+                          Enviado
+                        </span>
+                      )}
+                    </div>
+                    {item.observacoes && (
+                      <div className="text-xs text-gray-600 truncate" title={item.observacoes}>
+                        {item.observacoes}
+                      </div>
+                    )}
+                  </div>
+                  <span className="ml-4 whitespace-nowrap">
+                    € {(item.preco * item.quantidade).toFixed(2)}
+                  </span>
                 </div>
-                <span>€ {(item.preco * item.quantidade).toFixed(2)}</span>
-              </div>
-            ))}
-        </div>
-        <div className="flex justify-between">
-          <button 
-            onClick={() => setMostrarConfirmacaoCozinha(false)}
-            className="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded flex items-center"
-          >
-            <FiX className="mr-2" /> Cancelar
-          </button>
-          <button 
-            onClick={enviarPedidoParaFirebase}
-            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded flex items-center"
-          >
-            <FiCheck className="mr-2" /> Confirmar
-          </button>
+              ))}
+          </div>
+  
+          <div className="p-6">
+            <div className="flex justify-between">
+              <button 
+                onClick={() => setMostrarConfirmacaoCozinha(false)}
+                className="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded flex items-center"
+              >
+                <FiX className="mr-2" /> Cancelar
+              </button>
+              <button 
+                onClick={enviarPedidoParaFirebase}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded flex items-center"
+              >
+                <FiCheck className="mr-2" /> Confirmar
+              </button>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const ResumoFechamento = () => (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -614,171 +779,239 @@ const SistemaPedidos = () => {
       </div>
     </div>
   );
-
   const ModalCustomizacao = () => {
+    const scrollContainerRef = React.useRef(null);
+    const scrollPosition = React.useRef(0);
+    const firstRender = React.useRef(true);
+  
+    React.useEffect(() => {
+      // Restaurar scroll apenas na primeira renderização
+      if (firstRender.current && scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = scrollPosition.current;
+        firstRender.current = false;
+      }
+    }, [customizacaoItem]);
+  
+    const handleScroll = () => {
+      if (scrollContainerRef.current) {
+        scrollPosition.current = scrollContainerRef.current.scrollTop;
+      }
+    };
+  
+    const handleOptionChange = (tipo, index) => {
+      if (scrollContainerRef.current) {
+        scrollPosition.current = scrollContainerRef.current.scrollTop;
+      }
+      toggleOpcao(tipo, index);
+    };
+  
     if (!customizacaoItem) return null;
-    
+  
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-xl font-bold">{customizacaoItem.nome}</h3>
-            <button onClick={fecharCustomizacao} className="text-gray-500 hover:text-gray-700">
-              <FiX size={24} />
-            </button>
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-hidden">
+          <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-5 text-white">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xl font-bold">{customizacaoItem.nome}</h3>
+              <button
+                onClick={fecharCustomizacao}
+                className="p-1 rounded-full hover:bg-white hover:bg-opacity-20 transition"
+              >
+                <FiX size={24} />
+              </button>
+            </div>
+            <p className="text-indigo-100 text-sm mt-1">€ {customizacaoItem.preco.toFixed(2)}</p>
           </div>
-          
-          {/* Opções específicas para Churrasco */}
-          {customizacaoItem.opcoes?.feijao && (
-            <div className="mb-6">
-              <h4 className="font-medium mb-2">Feijão:</h4>
-              <div className="grid grid-cols-2 gap-2">
-                {customizacaoItem.opcoes.feijao.map((opcao, index) => (
-                  <label key={index} className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={opcao.selecionado}
-                      onChange={() => toggleOpcao('feijao', index)}
-                      className="mr-2"
-                    />
-                    {opcao.nome}
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-          
-          {customizacaoItem.opcoes?.acompanhamentos && (
-            <div className="mb-6">
-              <h4 className="font-medium mb-2">Acompanhamentos:</h4>
-              <div className="grid grid-cols-2 gap-2">
-                {customizacaoItem.opcoes.acompanhamentos.map((opcao, index) => (
-                  <label key={index} className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={opcao.selecionado}
-                      onChange={() => toggleOpcao('acompanhamentos', index)}
-                      className="mr-2"
-                    />
-                    {opcao.nome}
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-          
-          {customizacaoItem.opcoes?.salada && (
-            <div className="mb-6">
-              <h4 className="font-medium mb-2">Salada:</h4>
-              <div className="grid grid-cols-2 gap-2">
-                {customizacaoItem.opcoes.salada.map((opcao, index) => (
-                  <label key={index} className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={opcao.selecionado}
-                      onChange={() => toggleOpcao('salada', index)}
-                      className="mr-2"
-                    />
-                    {opcao.nome}
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-          
-          {/* Opções específicas para Churrasco Misto (Carnes) */}
-          {customizacaoItem.opcoes?.carnes && (
-            <div className="mb-6">
-              <h4 className="font-medium mb-2">Carnes:</h4>
-              <div className="space-y-2">
-                {customizacaoItem.opcoes.carnes.map((opcao, index) => (
-                  <label key={index} className="flex items-center">
-                    <input
-                      type={opcao.nome === 'Só maminha' ? 'checkbox' : 'checkbox'}
-                      checked={opcao.selecionado}
-                      onChange={() => toggleOpcao('carnes', index)}
-                      disabled={
-                        opcao.nome !== 'Só maminha' && 
-                        customizacaoItem.opcoes.carnes[0].selecionado
-                      }
-                      className="mr-2"
-                    />
-                    {opcao.nome}
-                    {opcao.nome !== 'Só maminha' && customizacaoItem.opcoes.carnes[0].selecionado && (
-                      <span className="text-xs text-gray-500 ml-2">(desmarque "Só maminha")</span>
-                    )}
-                  </label>
-                ))}
-                <div className="text-xs text-gray-600 mt-1">
-                  {customizacaoItem.opcoes.carnes[0].selecionado ? 
-                    "Apenas maminha selecionada" : 
-                    "Escolha até 2 carnes (exceto 'Só maminha')"}
+  
+          <div
+            ref={scrollContainerRef}
+            className="p-5 overflow-y-auto max-h-[70vh]"
+            onScroll={handleScroll}
+          >
+            {/* Acompanhamentos */}
+            {customizacaoItem.opcoes?.acompanhamentos && (
+              <div className="mb-6">
+                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                  Acompanhamentos (Escolha 1)
+                </h4>
+                <div className="space-y-2">
+                  {customizacaoItem.opcoes.acompanhamentos.map((opcao, index) => (
+                    <label
+                      key={index}
+                      className="flex items-center p-3 rounded-lg border border-gray-200 hover:border-indigo-300 transition cursor-pointer"
+                    >
+                      <input
+                        type="radio"
+                        name="acompanhamentos"
+                        checked={opcao.selecionado}
+                        onChange={() => handleOptionChange('acompanhamentos', index)}
+                        className="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
+                      />
+                      <span className="ml-3 block text-gray-700">{opcao.nome}</span>
+                    </label>
+                  ))}
                 </div>
               </div>
-            </div>
-          )}
-          
-          {/* Opções específicas para Açaí */}
-          {customizacaoItem.opcoes?.adicionais && (
-            <div className="mb-6">
-              <h4 className="font-medium mb-2">Adicionais:</h4>
-              <div className="grid grid-cols-2 gap-2">
-                {customizacaoItem.opcoes.adicionais.map((opcao, index) => (
-                  <label key={index} className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={opcao.selecionado}
-                      onChange={() => toggleOpcao('adicionais', index)}
-                      disabled={
+            )}
+  
+            {/* Salada */}
+            {customizacaoItem.opcoes?.salada && (
+              <div className="mb-6">
+                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                  Salada (Escolha 1)
+                </h4>
+                <div className="space-y-2">
+                  {customizacaoItem.opcoes.salada.map((opcao, index) => (
+                    <label
+                      key={index}
+                      className="flex items-center p-3 rounded-lg border border-gray-200 hover:border-indigo-300 transition cursor-pointer"
+                    >
+                      <input
+                        type="radio"
+                        name="salada"
+                        checked={opcao.selecionado}
+                        onChange={() => handleOptionChange('salada', index)}
+                        className="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
+                      />
+                      <span className="ml-3 block text-gray-700">{opcao.nome}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+  
+            {/* Carnes */}
+            {customizacaoItem.opcoes?.carnes && (
+              <div className="mb-6">
+                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Carnes</h4>
+                <div className="space-y-3">
+                  {customizacaoItem.opcoes.carnes.map((opcao, index) => (
+                    <div
+                      key={index}
+                      className={`p-3 rounded-lg border transition ${
+                        opcao.nome !== 'Só maminha' && customizacaoItem.opcoes.carnes[0].selecionado
+                          ? 'border-gray-200 bg-gray-50 opacity-75'
+                          : 'border-gray-200 hover:border-indigo-300 cursor-pointer'
+                      }`}
+                    >
+                      <label className="flex items-start">
+                        <input
+                          type="checkbox"
+                          checked={opcao.selecionado}
+                          onChange={() => handleOptionChange('carnes', index)}
+                          disabled={
+                            opcao.nome !== 'Só maminha' &&
+                            customizacaoItem.opcoes.carnes[0].selecionado
+                          }
+                          className="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500 mt-0.5"
+                        />
+                        <div className="ml-3">
+                          <span
+                            className={`block ${
+                              opcao.nome !== 'Só maminha' && customizacaoItem.opcoes.carnes[0].selecionado
+                                ? 'text-gray-500'
+                                : 'text-gray-700'
+                            }`}
+                          >
+                            {opcao.nome}
+                          </span>
+                          {opcao.nome !== 'Só maminha' &&
+                            customizacaoItem.opcoes.carnes[0].selecionado && (
+                              <span className="block text-xs text-gray-400 mt-1">(desative "Só maminha")</span>
+                            )}
+                        </div>
+                      </label>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-gray-500">
+                  {customizacaoItem.opcoes.carnes[0].selecionado
+                    ? 'Apenas maminha selecionada'
+                    : "Selecione até 2 carnes (exceto 'Só maminha')"}
+                </p>
+              </div>
+            )}
+  
+            {/* Adicionais */}
+            {customizacaoItem.opcoes?.adicionais && (
+              <div className="mb-6">
+                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Adicionais</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {customizacaoItem.opcoes.adicionais.map((opcao, index) => (
+                    <label
+                      key={index}
+                      className={`flex items-start p-3 rounded-lg border transition ${
                         customizacaoItem.opcoes.tipo?.some(t => t.nome === 'Açaí puro' && t.selecionado)
-                      }
-                      className="mr-2"
-                    />
-                    {opcao.nome}
-                  </label>
-                ))}
+                          ? 'border-gray-200 bg-gray-50 opacity-75'
+                          : 'border-gray-200 hover:border-indigo-300 cursor-pointer'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={opcao.selecionado}
+                        onChange={() => handleOptionChange('adicionais', index)}
+                        disabled={customizacaoItem.opcoes.tipo?.some(t => t.nome === 'Açaí puro' && t.selecionado)}
+                        className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 mt-0.5"
+                      />
+                      <span
+                        className={`ml-3 block ${
+                          customizacaoItem.opcoes.tipo?.some(t => t.nome === 'Açaí puro' && t.selecionado)
+                            ? 'text-gray-500'
+                            : 'text-gray-700'
+                        }`}
+                      >
+                        {opcao.nome}
+                      </span>
+                    </label>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-          
-          {customizacaoItem.opcoes?.tipo && (
-            <div className="mb-6">
-              <h4 className="font-medium mb-2">Tipo:</h4>
-              <div className="space-y-2">
-                {customizacaoItem.opcoes.tipo.map((opcao, index) => (
-                  <label key={index} className="flex items-center">
-                    <input
-                      type="radio"
-                      name="tipoAçai"
-                      checked={opcao.selecionado}
-                      onChange={() => toggleOpcao('tipo', index)}
-                      className="mr-2"
-                    />
-                    {opcao.nome}
-                  </label>
-                ))}
+            )}
+  
+            {/* Tipo */}
+            {customizacaoItem.opcoes?.tipo && (
+              <div className="mb-6">
+                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Tipo</h4>
+                <div className="space-y-2">
+                  {customizacaoItem.opcoes.tipo.map((opcao, index) => (
+                    <label
+                      key={index}
+                      className="flex items-center p-3 rounded-lg border border-gray-200 hover:border-indigo-300 transition cursor-pointer"
+                    >
+                      <input
+                        type="radio"
+                        name="tipoAçai"
+                        checked={opcao.selecionado}
+                        onChange={() => handleOptionChange('tipo', index)}
+                        className="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
+                      />
+                      <span className="ml-3 block text-gray-700">{opcao.nome}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-          
-          <div className="flex justify-end space-x-3 mt-6">
+            )}
+          </div>
+  
+          <div className="bg-gray-50 px-5 py-4 border-t flex justify-end space-x-3">
             <button
               onClick={fecharCustomizacao}
-              className="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded"
+              className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition font-medium"
             >
               Cancelar
             </button>
             <button
               onClick={confirmarCustomizacao}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded"
+              className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-medium transition flex items-center shadow-md"
             >
-              Adicionar ao Pedido
+              <FiPlus className="mr-2" /> Adicionar ao Pedido
             </button>
           </div>
         </div>
       </div>
     );
   };
+  
 
   const renderIconeCategoria = (categoria) => {
     switch (categoria) {
@@ -812,29 +1045,72 @@ const SistemaPedidos = () => {
   const renderTelaMesas = () => (
     <div className="mb-8">
       <div className="flex justify-between items-center mb-6">
-        <button onClick={() => setTelaAtiva('inicio')} className="flex items-center text-indigo-600 hover:text-indigo-800">
+        <button 
+          onClick={() => setTelaAtiva('inicio')} 
+          className="flex items-center text-indigo-600 hover:text-indigo-800"
+        >
           <FiArrowLeft className="mr-2" /> Voltar
         </button>
-        <h2 className="text-xl font-semibold">{areaSelecionada} - Mesas {areaSelecionada === 'Sala' ? '1-16' : '17-30'}</h2>
-        <div className="w-8"></div>
+        <h2 className="text-xl font-semibold">
+          {areaSelecionada} - Mesas {areaSelecionada === 'Sala' ? '1-16' : '17-30'}
+        </h2>
+        <div className="w-8"></div> {/* Espaçamento para alinhamento */}
       </div>
+  
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-        {mesas.filter(mesa => mesa.area === areaSelecionada).map(mesa => (
-          <button key={mesa.numero} onClick={() => selecionarMesa(mesa)} className={`p-4 rounded-xl shadow transition flex flex-col items-center ${mesa.ocupada ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'} border`}>
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center mb-2 ${mesa.ocupada ? 'bg-red-500 text-white' : 'bg-green-500 text-white'}`}>
-              {mesa.ocupada ? '🔴' : '✅'}
-            </div>
-            <span className="font-bold text-lg">Mesa {mesa.numero}</span>
-            {mesa.ocupada && (
-              <>
-                <div className="mt-2 text-sm text-gray-600 flex items-center">
-                  <FaClock className="mr-1" /> {mesa.horaAbertura ? tempoAtendimento : '--:--'}
+        {mesas
+          .filter(mesa => mesa.area === areaSelecionada)
+          .sort((a, b) => parseInt(a.numero) - parseInt(b.numero))
+          .map(mesa => {
+            // Calcula o tempo de atendimento para cada mesa ocupada
+            const calcularTempo = (horaAbertura) => {
+              if (!horaAbertura) return '--:--';
+              const diff = Math.floor((new Date() - new Date(horaAbertura)) / 1000);
+              return `${Math.floor(diff / 60).toString().padStart(2, '0')}:${(diff % 60).toString().padStart(2, '0')}`;
+            };
+  
+            return (
+              <button 
+                key={mesa.id}
+                onClick={() => selecionarMesa(mesa)}
+                className={`
+                  p-4 rounded-xl shadow transition flex flex-col items-center border
+                  ${mesa.ocupada 
+                    ? 'bg-red-50 border-red-200 hover:bg-red-100' 
+                    : 'bg-green-50 border-green-200 hover:bg-green-100'
+                  }
+                `}
+              >
+                <div className={`
+                  w-10 h-10 rounded-full flex items-center justify-center mb-2
+                  ${mesa.ocupada 
+                    ? 'bg-red-500 text-white' 
+                    : 'bg-green-500 text-white'
+                  }
+                `}>
+                  {mesa.numero}
                 </div>
-                <div className="mt-1 text-sm font-semibold">€ {mesa.total.toFixed(2)}</div>
-              </>
-            )}
-          </button>
-        ))}
+                
+                <span className="font-bold text-lg">Mesa {mesa.numero}</span>
+                
+                {mesa.ocupada && (
+                  <>
+                    <div className="mt-2 text-sm text-gray-600 flex items-center">
+                      <FaClock className="mr-1" /> 
+                      {calcularTempo(mesa.horaAbertura)}
+                    </div>
+                    <div className="mt-1 text-sm font-semibold">
+                      € {(mesa.total || 0).toFixed(2)}
+                    </div>
+                    <div className="mt-1 text-xs text-gray-500">
+                      {mesa.pedidos?.length || 0} itens
+                    </div>
+                  </>
+                )}
+              </button>
+            );
+          })
+        }
       </div>
     </div>
   );
@@ -856,7 +1132,7 @@ const SistemaPedidos = () => {
           </div>
         </div>
       </div>
-
+  
       <div className="p-4">
         <div className="flex overflow-x-auto pb-2 mb-4 scrollbar-hide">
           {Object.keys(cardapio).map(categoria => (
@@ -875,7 +1151,7 @@ const SistemaPedidos = () => {
             </button>
           ))}
         </div>
-
+  
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
           {cardapio[categoriaAtiva].map(item => (
             <button
@@ -889,7 +1165,7 @@ const SistemaPedidos = () => {
             </button>
           ))}
         </div>
-
+  
         <div className="border-t pt-4">
           <div className="flex mb-4 border-b">
             <button
@@ -917,7 +1193,7 @@ const SistemaPedidos = () => {
               Bar
             </button>
           </div>
-
+  
           <div className="max-h-64 overflow-y-auto mb-4 border rounded-lg">
             {pedidoEmAndamento.length === 0 ? (
               <div className="text-center py-6 text-gray-500">Nenhum item adicionado</div>
@@ -935,8 +1211,11 @@ const SistemaPedidos = () => {
                       return item.categoria === 'bebidas';
                     return true;
                   })
-                  .map(item => (
-                    <div key={`${item.id}-${item.observacoes || ''}`} className="flex justify-between items-center p-3">
+                  .map((item, index) => (
+                    <div 
+                      key={`${item.id}-${item.observacoes || ''}-${index}`} 
+                      className="flex justify-between items-center p-3"
+                    >
                       <div className="flex-1">
                         <h4 className="font-medium">{item.nome}</h4>
                         {item.observacoes && (
@@ -962,9 +1241,12 @@ const SistemaPedidos = () => {
                           <FiPlus size={16} />
                         </button>
                         <span className="mx-3 font-medium">€ {(item.preco * item.quantidade).toFixed(2)}</span>
-                        <button onClick={() => removerItem(item.id)} className="p-1 text-gray-400 hover:text-red-500">
-                          <FiTrash2 size={16} />
-                        </button>
+                        <button 
+                        onClick={() => removerItem(item.id, item.observacoes || '')} 
+                        className="p-1 text-gray-400 hover:text-red-500"
+                      >
+                        <FiTrash2 size={16} />
+                      </button>
                       </div>
                     </div>
                   ))
@@ -972,7 +1254,7 @@ const SistemaPedidos = () => {
               </div>
             )}
           </div>
-
+  
           <div className="bg-indigo-50 p-4 rounded-lg">
             <div className="flex justify-between items-center mb-4">
               <span className="font-semibold">Total:</span>
@@ -982,14 +1264,10 @@ const SistemaPedidos = () => {
               <button onClick={salvarPedido} className="bg-indigo-600 hover:bg-indigo-700 text-white py-2 px-4 rounded-lg flex items-center justify-center">
                 <FiCheck className="mr-2" /> Enviar Pedido
               </button>
+              {/* No renderTelaPedido(), substitua o botão de fechar conta por este: */}
               <button 
-                onClick={fecharConta} 
-                disabled={!mesaSelecionada.ocupada} 
-                className={`py-2 px-4 rounded-lg flex items-center justify-center ${
-                  mesaSelecionada.ocupada 
-                    ? 'bg-green-600 hover:bg-green-700 text-white' 
-                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                }`}
+                onClick={() => fecharConta()} 
+                className="py-2 px-4 rounded-lg bg-green-600 hover:bg-green-700 text-white flex items-center justify-center"
               >
                 <FiPrinter className="mr-2" /> Fechar Conta
               </button>
@@ -1002,15 +1280,16 @@ const SistemaPedidos = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800">
-      <header className="bg-indigo-900 text-white p-4 shadow">
-        <div className="container mx-auto flex justify-between items-center">
-          <h1 className="text-2xl font-bold flex items-center">
-            <FiCoffee className="mr-2" /> Sistema de Pedidos
-          </h1>
-          <div className="bg-white text-indigo-900 px-3 py-1 rounded-full text-sm font-semibold">
-            Garçom
-          </div>
+      <header className="bg-[#ffb501] text-black p-4 shadow-md">
+      <div className="container mx-auto flex justify-between items-center">
+        <h1 className="text-2xl font-bold flex items-center">
+          <FiCoffee className="mr-3" /> 
+          <span>Cozinha da Vivi</span>
+        </h1>
+        <div className="bg-black text-[#ffeb00] px-4 py-1 rounded-full text-sm font-semibold shadow">
+          Garçom
         </div>
+      </div>
       </header>
 
       <main className="container mx-auto p-4">
