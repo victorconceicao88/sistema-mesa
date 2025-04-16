@@ -1,0 +1,152 @@
+/* app.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+.App {
+  text-align: center;
+}
+
+.App-logo {
+  height: 40vmin;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .App-logo {
+    animation: App-logo-spin infinite 20s linear;
+  }
+}
+
+.App-header {
+  background-color: #282c34;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+  color: white;
+}
+
+.App-link {
+  color: #61dafb;
+}
+
+/* Estilos gerais */
+.app-container {
+  padding: 20px;
+}
+
+/* Seção de mesas */
+.tables-view {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.section-title {
+  font-size: 1.5rem;
+  margin-bottom: 15px;
+  color: #333;
+}
+
+.tables-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 15px;
+}
+
+/* Cartão de mesa */
+.table-card {
+  position: relative;
+  padding: 15px;
+  border-radius: 10px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.table-card.free {
+  background-color: #f0fdf4;
+  border: 1px solid #bbf7d0;
+}
+
+.table-card.busy {
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+}
+
+.table-status-indicator {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  margin: 0 auto 10px;
+}
+
+.table-card.free .table-status-indicator {
+  background-color: #22c55e;
+}
+
+.table-card.busy .table-status-indicator {
+  background-color: #ef4444;
+}
+
+.table-number {
+  font-weight: bold;
+  display: block;
+}
+
+.table-badge {
+  display: inline-block;
+  margin-top: 5px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  background-color: #ef4444;
+  color: white;
+}
+
+/* Tela de pedidos */
+.order-screen {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.order-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.order-content {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
+}
+
+.back-button {
+  padding: 5px 15px;
+  background-color: #e2e8f0;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+/* Responsivo */
+@media (max-width: 768px) {
+  .order-content {
+    grid-template-columns: 1fr;
+  }
+}
+
+@keyframes App-logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
