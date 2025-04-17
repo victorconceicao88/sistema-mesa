@@ -135,6 +135,7 @@
   cursor: pointer;
 }
 
+
 /* Responsivo */
 @media (max-width: 768px) {
   .order-content {

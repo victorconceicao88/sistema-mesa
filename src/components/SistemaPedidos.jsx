@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { FiCoffee, FiUser, FiPlus, FiMinus, FiTrash2, FiPrinter, FiCheck, FiX, FiArrowLeft } from 'react-icons/fi';
+import { FiCoffee, FiUser, FiPlus, FiMinus, FiTrash2, FiPrinter, FiCheck, FiX, FiArrowLeft, FiArrowRight} from 'react-icons/fi';
 import { FaUtensils, FaGlassCheers, FaIceCream, FaWineGlassAlt, FaClock } from 'react-icons/fa';
 import { initializeApp } from 'firebase/app';
 // eslint-disable-next-line
 import { getDatabase, ref, push, set, onValue, off, update } from 'firebase/database';
+
+
 
 
 const firebaseConfig = {
@@ -352,66 +354,69 @@ useEffect(() => {
     setCustomizacaoItem(prev => {
       if (!prev || !prev.opcoes) return prev;
       
-      // Cria uma cópia profunda do item e suas opções
       const newItem = JSON.parse(JSON.stringify(prev));
       
-      // Tratamento especial para carnes no Churrasco Misto
-      if (tipo === 'carnes' && newItem.opcoes.carnes?.[index]?.nome === 'Só maminha') {
-        const isSelected = newItem.opcoes.carnes[index].selecionado;
+      // Tratamento especial para carnes
+      if (tipo === 'carnes') {
+        const opcao = newItem.opcoes.carnes[index];
         
-        // Alterna o estado de "Só maminha" e desmarca todas as outras
-        newItem.opcoes.carnes.forEach(c => {
-          c.selecionado = c.nome === 'Só maminha' ? !isSelected : false;
-        });
-      } 
-      // Se marcar qualquer outra carne
-      else if (tipo === 'carnes' && newItem.opcoes.carnes?.[index]?.nome !== 'Só maminha') {
-        // Desmarca "Só maminha" se estiver marcada
-        if (newItem.opcoes.carnes[0].selecionado) {
-          newItem.opcoes.carnes[0].selecionado = false;
-        }
-        
-        // Alterna o estado da carne selecionada
-        newItem.opcoes.carnes[index].selecionado = !newItem.opcoes.carnes[index].selecionado;
-        
-        // Limita a 2 carnes selecionadas (exceto "Só maminha")
-        const carnesSelecionadas = newItem.opcoes.carnes
-          .slice(1) // Ignora "Só maminha"
-          .filter(c => c.selecionado).length;
-        
-        if (carnesSelecionadas > 2) {
-          newItem.opcoes.carnes[index].selecionado = false;
+        // Se for "Só maminha"
+        if (opcao.nome === 'Só maminha') {
+          const isSelected = opcao.selecionado;
+          
+          // Alterna o estado e desmarca outras
+          newItem.opcoes.carnes.forEach(c => {
+            c.selecionado = c.nome === 'Só maminha' ? !isSelected : false;
+          });
+        } 
+        // Se for outra carne
+        else {
+          // Desmarca "Só maminha" se estiver marcada
+          if (newItem.opcoes.carnes[0].selecionado) {
+            newItem.opcoes.carnes[0].selecionado = false;
+          }
+          
+          // Conta carnes selecionadas (exceto "Só maminha")
+          const carnesSelecionadas = newItem.opcoes.carnes
+            .slice(1)
+            .filter(c => c.selecionado).length;
+          
+          // Se já tem 2 selecionadas e a atual não está selecionada, não faz nada
+          if (carnesSelecionadas >= 2 && !opcao.selecionado) {
+            return prev;
+          }
+          
+          // Alterna o estado da carne selecionada
+          newItem.opcoes.carnes[index].selecionado = !opcao.selecionado;
         }
       }
-      // Tratamento especial para tipos de açaí (radio buttons)
-      else if (tipo === 'tipo' && newItem.opcoes.tipo?.[index]) {
-        // Marca apenas o tipo selecionado e desmarca os outros
-        newItem.opcoes.tipo.forEach((t, i) => {
-          t.selecionado = i === index;
+      // Para outros tipos de opções (radio buttons)
+      else if (['feijao', 'acompanhamentos', 'salada', 'tipo'].includes(tipo)) {
+        // Desmarca todos e marca apenas o selecionado
+        newItem.opcoes[tipo].forEach((opt, i) => {
+          opt.selecionado = i === index;
         });
         
-        // Se for "Completo", marca todos os adicionais
-        if (newItem.opcoes.tipo[index].nome === 'Completo') {
+        // Tratamento especial para açaí
+        if (tipo === 'tipo' && newItem.opcoes.tipo[index].nome === 'Completo') {
           newItem.opcoes.adicionais?.forEach(a => {
             a.selecionado = true;
           });
-        } 
-        // Se for "Açaí puro", desmarca todos os adicionais
-        else if (newItem.opcoes.tipo[index].nome === 'Açaí puro') {
+        } else if (tipo === 'tipo' && newItem.opcoes.tipo[index].nome === 'Açaí puro') {
           newItem.opcoes.adicionais?.forEach(a => {
             a.selecionado = false;
           });
         }
       }
-      // Para todas as outras opções (checkboxes normais)
-      else if (newItem.opcoes[tipo]?.[index]) {
-        newItem.opcoes[tipo][index].selecionado = !newItem.opcoes[tipo][index].selecionado;
+      // Para adicionais (checkboxes normais)
+      else if (tipo === 'adicionais') {
+        newItem.opcoes.adicionais[index].selecionado = 
+          !newItem.opcoes.adicionais[index].selecionado;
       }
       
       return newItem;
     });
   };
-
   const confirmarCustomizacao = () => {
     const itemCustomizado = {
       ...customizacaoItem,
@@ -743,73 +748,82 @@ useEffect(() => {
 
   const ResumoFechamento = () => (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-        <h3 className="text-xl font-bold mb-4">Resumo da Mesa {mesaSelecionada.numero}</h3>
-        <div className="max-h-96 overflow-y-auto mb-6 border rounded p-3">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full flex flex-col" style={{ maxHeight: '90vh' }}>
+        <div className="p-6">
+          <h3 className="text-xl font-bold mb-4">Resumo da Mesa {mesaSelecionada.numero}</h3>
+        </div>
+        
+        <div className="px-6 overflow-y-auto flex-1 border-t border-b">
           {pedidoEmAndamento.map(item => (
-            <div key={`${item.id}-${item.observacoes || ''}`} className="flex justify-between py-2 border-b last:border-b-0">
-              <div>
-                <div>{item.nome} x {item.quantidade}</div>
-                {item.observacoes && <div className="text-xs text-gray-600">{item.observacoes}</div>}
+            <div key={`${item.id}-${item.observacoes || ''}`} className="flex justify-between py-4 border-b last:border-b-0">
+              <div className="flex-1 min-w-0">
+                <div className="font-medium truncate">{item.nome} x {item.quantidade}</div>
+                {item.observacoes && (
+                  <div className="text-xs text-gray-600 truncate" title={item.observacoes}>
+                    {item.observacoes}
+                  </div>
+                )}
               </div>
-              <span>€ {(item.preco * item.quantidade).toFixed(2)}</span>
+              <span className="ml-4 whitespace-nowrap">
+                € {(item.preco * item.quantidade).toFixed(2)}
+              </span>
             </div>
           ))}
         </div>
-        <div className="border-t pt-4 mb-4">
-          <div className="flex justify-between font-bold text-lg">
+        
+        <div className="p-6 border-t">
+          <div className="flex justify-between font-bold text-lg mb-6">
             <span>Total:</span>
             <span>€ {totalConta.toFixed(2)}</span>
           </div>
-        </div>
-        <div className="flex justify-between">
-          <button 
-            onClick={() => setMostrarResumoFechamento(false)}
-            className="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded flex items-center"
-          >
-            <FiArrowLeft className="mr-2" /> Voltar
-          </button>
-          <button 
-            onClick={fecharConta}
-            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded flex items-center"
-          >
-            <FiPrinter className="mr-2" /> Confirmar Fechamento
-          </button>
+          
+          <div className="flex justify-between">
+            <button 
+              onClick={() => setMostrarResumoFechamento(false)}
+              className="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded flex items-center"
+            >
+              <FiArrowLeft className="mr-2" /> Voltar
+            </button>
+            <button 
+              onClick={fecharConta}
+              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded flex items-center"
+            >
+              <FiPrinter className="mr-2" /> Confirmar Fechamento
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
+ 
+ 
   const ModalCustomizacao = () => {
     const scrollContainerRef = React.useRef(null);
-    const scrollPosition = React.useRef(0);
-    const firstRender = React.useRef(true);
-  
-    React.useEffect(() => {
-      // Restaurar scroll apenas na primeira renderização
-      if (firstRender.current && scrollContainerRef.current) {
-        scrollContainerRef.current.scrollTop = scrollPosition.current;
-        firstRender.current = false;
-      }
-    }, [customizacaoItem]);
-  
-    const handleScroll = () => {
-      if (scrollContainerRef.current) {
-        scrollPosition.current = scrollContainerRef.current.scrollTop;
-      }
-    };
-  
-    const handleOptionChange = (tipo, index) => {
-      if (scrollContainerRef.current) {
-        scrollPosition.current = scrollContainerRef.current.scrollTop;
-      }
-      toggleOpcao(tipo, index);
-    };
   
     if (!customizacaoItem) return null;
   
+    const isChurrascoMisto = customizacaoItem.nome.includes('Churrasco Misto');
+  
+    const handleToggleOpcao = (tipo, index) => {
+      if (
+        tipo === 'acompanhamentos' ||
+        tipo === 'salada' ||
+        tipo === 'feijao' ||
+        tipo === 'tipo'
+      ) {
+        const updatedItem = { ...customizacaoItem };
+        updatedItem.opcoes[tipo].forEach(opt => (opt.selecionado = false));
+        updatedItem.opcoes[tipo][index].selecionado = true;
+        setCustomizacaoItem(updatedItem);
+      } else {
+        toggleOpcao(tipo, index);
+      }
+    };
+  
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-hidden">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md" style={{ maxHeight: '90vh' }}>
+          {/* Header */}
           <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-5 text-white">
             <div className="flex justify-between items-center">
               <h3 className="text-xl font-bold">{customizacaoItem.nome}</h3>
@@ -823,31 +837,48 @@ useEffect(() => {
             <p className="text-indigo-100 text-sm mt-1">€ {customizacaoItem.preco.toFixed(2)}</p>
           </div>
   
+          {/* Conteúdo com ou sem rolagem */}
           <div
             ref={scrollContainerRef}
-            className="p-5 overflow-y-auto max-h-[70vh]"
-            onScroll={handleScroll}
+            className={`p-5 ${isChurrascoMisto ? '' : 'overflow-y-auto'}`}
+            style={{ maxHeight: 'calc(90vh - 180px)' }}
           >
+            {/* Feijão */}
+            {customizacaoItem.opcoes?.feijao && (
+              <div className="mb-4">
+                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Tipo de Feijão</h4>
+                <div className="grid grid-cols-2 gap-2">
+                  {customizacaoItem.opcoes.feijao.map((opcao, index) => (
+                    <label key={index} className="flex items-center p-2 rounded-lg border border-gray-200 hover:border-indigo-300 transition cursor-pointer text-sm">
+                      <input
+                        type="radio"
+                        name="feijao"
+                        checked={opcao.selecionado}
+                        onChange={() => handleToggleOpcao('feijao', index)}
+                        className="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
+                      />
+                      <span className="ml-2 block">{opcao.nome}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+  
             {/* Acompanhamentos */}
             {customizacaoItem.opcoes?.acompanhamentos && (
-              <div className="mb-6">
-                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
-                  Acompanhamentos (Escolha 1)
-                </h4>
-                <div className="space-y-2">
+              <div className="mb-4">
+                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Acompanhamentos</h4>
+                <div className="grid grid-cols-2 gap-2">
                   {customizacaoItem.opcoes.acompanhamentos.map((opcao, index) => (
-                    <label
-                      key={index}
-                      className="flex items-center p-3 rounded-lg border border-gray-200 hover:border-indigo-300 transition cursor-pointer"
-                    >
+                    <label key={index} className="flex items-center p-2 rounded-lg border border-gray-200 hover:border-indigo-300 transition cursor-pointer text-sm">
                       <input
                         type="radio"
                         name="acompanhamentos"
                         checked={opcao.selecionado}
-                        onChange={() => handleOptionChange('acompanhamentos', index)}
+                        onChange={() => handleToggleOpcao('acompanhamentos', index)}
                         className="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
                       />
-                      <span className="ml-3 block text-gray-700">{opcao.nome}</span>
+                      <span className="ml-2 block">{opcao.nome}</span>
                     </label>
                   ))}
                 </div>
@@ -856,24 +887,19 @@ useEffect(() => {
   
             {/* Salada */}
             {customizacaoItem.opcoes?.salada && (
-              <div className="mb-6">
-                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
-                  Salada (Escolha 1)
-                </h4>
-                <div className="space-y-2">
+              <div className="mb-4">
+                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Salada</h4>
+                <div className="grid grid-cols-2 gap-2">
                   {customizacaoItem.opcoes.salada.map((opcao, index) => (
-                    <label
-                      key={index}
-                      className="flex items-center p-3 rounded-lg border border-gray-200 hover:border-indigo-300 transition cursor-pointer"
-                    >
+                    <label key={index} className="flex items-center p-2 rounded-lg border border-gray-200 hover:border-indigo-300 transition cursor-pointer text-sm">
                       <input
                         type="radio"
                         name="salada"
                         checked={opcao.selecionado}
-                        onChange={() => handleOptionChange('salada', index)}
+                        onChange={() => handleToggleOpcao('salada', index)}
                         className="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
                       />
-                      <span className="ml-3 block text-gray-700">{opcao.nome}</span>
+                      <span className="ml-2 block">{opcao.nome}</span>
                     </label>
                   ))}
                 </div>
@@ -882,13 +908,13 @@ useEffect(() => {
   
             {/* Carnes */}
             {customizacaoItem.opcoes?.carnes && (
-              <div className="mb-6">
-                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Carnes</h4>
-                <div className="space-y-3">
+              <div className="mb-4">
+                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Carnes (máx. 2)</h4>
+                <div className="grid grid-cols-2 gap-2">
                   {customizacaoItem.opcoes.carnes.map((opcao, index) => (
                     <div
                       key={index}
-                      className={`p-3 rounded-lg border transition ${
+                      className={`p-2 rounded-lg border transition text-sm ${
                         opcao.nome !== 'Só maminha' && customizacaoItem.opcoes.carnes[0].selecionado
                           ? 'border-gray-200 bg-gray-50 opacity-75'
                           : 'border-gray-200 hover:border-indigo-300 cursor-pointer'
@@ -898,14 +924,11 @@ useEffect(() => {
                         <input
                           type="checkbox"
                           checked={opcao.selecionado}
-                          onChange={() => handleOptionChange('carnes', index)}
-                          disabled={
-                            opcao.nome !== 'Só maminha' &&
-                            customizacaoItem.opcoes.carnes[0].selecionado
-                          }
-                          className="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500 mt-0.5"
+                          onChange={() => handleToggleOpcao('carnes', index)}
+                          disabled={opcao.nome !== 'Só maminha' && customizacaoItem.opcoes.carnes[0].selecionado}
+                          className="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500 mt-1"
                         />
-                        <div className="ml-3">
+                        <div className="ml-2">
                           <span
                             className={`block ${
                               opcao.nome !== 'Só maminha' && customizacaoItem.opcoes.carnes[0].selecionado
@@ -915,32 +938,26 @@ useEffect(() => {
                           >
                             {opcao.nome}
                           </span>
-                          {opcao.nome !== 'Só maminha' &&
-                            customizacaoItem.opcoes.carnes[0].selecionado && (
-                              <span className="block text-xs text-gray-400 mt-1">(desative "Só maminha")</span>
-                            )}
                         </div>
                       </label>
                     </div>
                   ))}
                 </div>
-                <p className="mt-2 text-xs text-gray-500">
-                  {customizacaoItem.opcoes.carnes[0].selecionado
-                    ? 'Apenas maminha selecionada'
-                    : "Selecione até 2 carnes (exceto 'Só maminha')"}
-                </p>
+                {customizacaoItem.opcoes.carnes[0].selecionado && (
+                  <p className="mt-1 text-xs text-gray-500 text-center">Apenas maminha selecionada</p>
+                )}
               </div>
             )}
   
             {/* Adicionais */}
             {customizacaoItem.opcoes?.adicionais && (
-              <div className="mb-6">
-                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Adicionais</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="mb-4">
+                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Adicionais</h4>
+                <div className="grid grid-cols-2 gap-2">
                   {customizacaoItem.opcoes.adicionais.map((opcao, index) => (
                     <label
                       key={index}
-                      className={`flex items-start p-3 rounded-lg border transition ${
+                      className={`flex items-center p-2 rounded-lg border transition text-sm ${
                         customizacaoItem.opcoes.tipo?.some(t => t.nome === 'Açaí puro' && t.selecionado)
                           ? 'border-gray-200 bg-gray-50 opacity-75'
                           : 'border-gray-200 hover:border-indigo-300 cursor-pointer'
@@ -949,19 +966,11 @@ useEffect(() => {
                       <input
                         type="checkbox"
                         checked={opcao.selecionado}
-                        onChange={() => handleOptionChange('adicionais', index)}
+                        onChange={() => handleToggleOpcao('adicionais', index)}
                         disabled={customizacaoItem.opcoes.tipo?.some(t => t.nome === 'Açaí puro' && t.selecionado)}
-                        className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 mt-0.5"
+                        className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
                       />
-                      <span
-                        className={`ml-3 block ${
-                          customizacaoItem.opcoes.tipo?.some(t => t.nome === 'Açaí puro' && t.selecionado)
-                            ? 'text-gray-500'
-                            : 'text-gray-700'
-                        }`}
-                      >
-                        {opcao.nome}
-                      </span>
+                      <span className="ml-2 block">{opcao.nome}</span>
                     </label>
                   ))}
                 </div>
@@ -970,22 +979,22 @@ useEffect(() => {
   
             {/* Tipo */}
             {customizacaoItem.opcoes?.tipo && (
-              <div className="mb-6">
-                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Tipo</h4>
-                <div className="space-y-2">
+              <div className="mb-4">
+                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Tipo</h4>
+                <div className="grid grid-cols-2 gap-2">
                   {customizacaoItem.opcoes.tipo.map((opcao, index) => (
                     <label
                       key={index}
-                      className="flex items-center p-3 rounded-lg border border-gray-200 hover:border-indigo-300 transition cursor-pointer"
+                      className="flex items-center p-2 rounded-lg border border-gray-200 hover:border-indigo-300 transition cursor-pointer text-sm"
                     >
                       <input
                         type="radio"
                         name="tipoAçai"
                         checked={opcao.selecionado}
-                        onChange={() => handleOptionChange('tipo', index)}
+                        onChange={() => handleToggleOpcao('tipo', index)}
                         className="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
                       />
-                      <span className="ml-3 block text-gray-700">{opcao.nome}</span>
+                      <span className="ml-2 block">{opcao.nome}</span>
                     </label>
                   ))}
                 </div>
@@ -993,18 +1002,19 @@ useEffect(() => {
             )}
           </div>
   
-          <div className="bg-gray-50 px-5 py-4 border-t flex justify-end space-x-3">
+          {/* Footer */}
+          <div className="bg-gray-50 px-5 py-3 border-t flex justify-end space-x-2">
             <button
               onClick={fecharCustomizacao}
-              className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition font-medium"
+              className="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition text-sm font-medium"
             >
               Cancelar
             </button>
             <button
               onClick={confirmarCustomizacao}
-              className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-medium transition flex items-center shadow-md"
+              className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition flex items-center"
             >
-              <FiPlus className="mr-2" /> Adicionar ao Pedido
+              <FiPlus className="mr-1" /> Adicionar
             </button>
           </div>
         </div>
@@ -1012,7 +1022,6 @@ useEffect(() => {
     );
   };
   
-
   const renderIconeCategoria = (categoria) => {
     switch (categoria) {
       case 'churrasco': return <FaUtensils className="inline mr-2" />;
@@ -1023,21 +1032,72 @@ useEffect(() => {
       default: return <FaGlassCheers className="inline mr-2" />;
     }
   };
-
   const renderTelaInicial = () => (
-    <div className="flex flex-col items-center justify-center h-full py-8">
-      <h2 className="text-2xl font-bold mb-8 text-indigo-900">Selecione a Área</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-2xl px-4">
-        <button onClick={() => selecionarArea('Sala')} className="bg-indigo-50 p-6 rounded-xl shadow hover:shadow-md transition flex flex-col items-center border border-indigo-100">
-          <div className="bg-indigo-100 p-4 rounded-full mb-4"><FiUser className="text-indigo-600 text-2xl" /></div>
-          <h3 className="text-xl font-semibold text-indigo-800 mb-2">Sala Interna</h3>
-          <p className="text-gray-600">Mesas 1 a 16</p>
-        </button>
-        <button onClick={() => selecionarArea('Esplanada')} className="bg-indigo-50 p-6 rounded-xl shadow hover:shadow-md transition flex flex-col items-center border border-indigo-100">
-          <div className="bg-indigo-100 p-4 rounded-full mb-4"><FiCoffee className="text-indigo-600 text-2xl" /></div>
-          <h3 className="text-xl font-semibold text-indigo-800 mb-2">Esplanada</h3>
-          <p className="text-gray-600">Mesas 17 a 30</p>
-        </button>
+    <div className="flex flex-col items-center justify-center min-h-[80vh] py-8 px-4">
+      <div className="text-center mb-12">
+        <h2 className="text-4xl font-bold mb-4 text-gray-900 font-serif">Bem-vindo ao Sistema de Pedidos</h2>
+        <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+          Selecione a área para gerenciar mesas e pedidos
+        </p>
+      </div>
+  
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-5xl">
+        {/* Card Sala Interna */}
+        <div 
+          onClick={() => selecionarArea('Sala')}
+          className="relative group overflow-hidden rounded-2xl shadow-xl cursor-pointer transition-all duration-300 hover:shadow-2xl hover:-translate-y-2"
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-600/20 to-indigo-800/70 z-10"></div>
+          <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1470&q=80')] bg-cover bg-center"></div>
+          
+          <div className="relative z-20 p-8 h-64 flex flex-col justify-between">
+            <div>
+              <div className="w-14 h-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center mb-4">
+                <FiUser className="text-white text-2xl" />
+              </div>
+              <h3 className="text-2xl font-bold text-white mb-2">Sala Interna</h3>
+              <p className="text-blue-100">Mesas 1 a 16</p>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-white/80 text-sm">Clique para selecionar</span>
+              <div className="w-10 h-10 rounded-full bg-white/20 group-hover:bg-white/30 transition-all flex items-center justify-center">
+                <FiArrowRight className="text-white" />
+              </div>
+            </div>
+          </div>
+        </div>
+  
+        {/* Card Esplanada */}
+        <div 
+          onClick={() => selecionarArea('Esplanada')}
+          className="relative group overflow-hidden rounded-2xl shadow-xl cursor-pointer transition-all duration-300 hover:shadow-2xl hover:-translate-y-2"
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-amber-500/20 to-orange-600/70 z-10"></div>
+          <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1414235077428-338989a2e8c0?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1470&q=80')] bg-cover bg-center"></div>
+          
+          <div className="relative z-20 p-8 h-64 flex flex-col justify-between">
+            <div>
+              <div className="w-14 h-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center mb-4">
+                <FiCoffee className="text-white text-2xl" />
+              </div>
+              <h3 className="text-2xl font-bold text-white mb-2">Esplanada</h3>
+              <p className="text-amber-100">Mesas 17 a 30</p>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-white/80 text-sm">Clique para selecionar</span>
+              <div className="w-10 h-10 rounded-full bg-white/20 group-hover:bg-white/30 transition-all flex items-center justify-center">
+                <FiArrowRight className="text-white" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+  
+      <div className="mt-16 text-center">
+        <div className="inline-flex items-center space-x-2 text-gray-500">
+          <FaClock className="text-yellow-500" />
+          <span>Horário atual: {new Date().toLocaleTimeString()}</span>
+        </div>
       </div>
     </div>
   );
@@ -1117,7 +1177,7 @@ useEffect(() => {
 
   const renderTelaPedido = () => (
     <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-8">
-      <div className="bg-indigo-800 p-4 text-white">
+      <div className="p-4 text- black" style={{ backgroundColor: '#FFB501' }}>
         <div className="flex justify-between items-center">
           <div className="flex items-center">
             <button onClick={() => setMesaSelecionada(null)} className="p-1 mr-2 rounded-full hover:bg-white hover:bg-opacity-20">
@@ -1157,7 +1217,7 @@ useEffect(() => {
             <button
               key={item.id}
               onClick={() => item.customizavel ? abrirCustomizacao(item) : adicionarItem(item)}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg p-4 transition flex flex-col items-center text-center h-full"
+              className="bg-[#57aed1] hover:bg-[#76bdda] style={{ color: '#3d1106' }} rounded-lg p-4 transition flex flex-col items-center text-center h-full"
             >
               <h3 className="font-medium mb-1">{item.nome}</h3>
               <div className="mt-auto font-bold">€ {item.preco.toFixed(2)}</div>
@@ -1280,15 +1340,12 @@ useEffect(() => {
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800">
-      <header className="bg-[#ffb501] text-black p-4 shadow-md">
+      <header className="bg-[#fff1e4] p-4 shadow-md" style={{ color: '#280b04' }}>
       <div className="container mx-auto flex justify-between items-center">
         <h1 className="text-2xl font-bold flex items-center">
           <FiCoffee className="mr-3" /> 
           <span>Cozinha da Vivi</span>
         </h1>
-        <div className="bg-black text-[#ffeb00] px-4 py-1 rounded-full text-sm font-semibold shadow">
-          Garçom
-        </div>
       </div>
       </header>
 
@@ -1311,7 +1368,7 @@ useEffect(() => {
       </main>
 
       <footer className="bg-gray-100 border-t p-4 text-center text-sm text-gray-600">
-        Sistema de Pedidos © {new Date().getFullYear()}
+        Cozinha da Vivi © {new Date().getFullYear()}
       </footer>
     </div>
   );
