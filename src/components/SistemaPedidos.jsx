@@ -294,8 +294,9 @@ useEffect(() => {
 
     // Função para gerar URL do QR Code
     const gerarUrlQRCode = (mesaId) => {
-      return `${window.location.origin}/cliente?mesa=${mesaId}&cardapio=${encodeURIComponent(JSON.stringify(cardapio))}`;
+      return `${window.location.origin}/cliente?mesa=${mesaId}`;
     };
+    
 
   
 // Função para adicionar pedido do cliente

@@ -4,7 +4,7 @@ import './App.css';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 
 import SistemaPedidos from './components/SistemaPedidos';
-import InterfaceCliente from './components/InterfaceCliente'; // 👈 importar aqui
+import InterfaceCliente from './components/InterfaceCliente';
 
 function App() {
   return (
@@ -16,14 +16,6 @@ function App() {
             path="/cliente" 
             element={
               <InterfaceCliente 
-                mesa={{ numero: 1 }} 
-                cardapio={{
-                  churrasco: [],
-                  burgers: [],
-                  porcoes: [],
-                  bebidas: [],
-                  sobremesas: []
-                }} 
                 onEnviarPedido={(pedido) => console.log('Pedido enviado:', pedido)}
                 onVoltar={() => window.history.back()}
               />
