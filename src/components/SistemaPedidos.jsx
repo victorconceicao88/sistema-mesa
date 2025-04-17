@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { FiCoffee, FiUser, FiPlus, FiMinus, FiTrash2, FiPrinter, FiCheck, FiX, FiArrowLeft, FiArrowRight } from 'react-icons/fi';
-import { FaUtensils, FaGlassCheers, FaIceCream, FaWineGlassAlt, FaClock } from 'react-icons/fa';
+import { FiCoffee, FiUser, FiPlus, FiMinus, FiTrash2, FiPrinter, FiCheck, FiX, FiArrowLeft, FiArrowRight,} from 'react-icons/fi';
+import { FaUtensils, FaGlassCheers, FaIceCream, FaWineGlassAlt, FaClock, FaRegCheckCircle, FaRegTimesCircle, FaEdit } from 'react-icons/fa';
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, onValue, off, update } from 'firebase/database';
+import { QRCodeCanvas } from 'qrcode.react';
+import { AiOutlineQrcode } from 'react-icons/ai';
+
+
 
 const firebaseConfig = {
   apiKey: "AIzaSyBbJmwq5Ia68S3UPhnaUerEl0paRdXQNqM",
@@ -18,7 +22,7 @@ const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
 
 const SistemaPedidos = () => {
-  // States
+  // Estados existentes
   const [telaAtiva, setTelaAtiva] = useState('inicio');
   const [areaSelecionada, setAreaSelecionada] = useState(null);
   const [mesas, setMesas] = useState([]);
@@ -32,6 +36,12 @@ const SistemaPedidos = () => {
   const [mostrarConfirmacaoCozinha, setMostrarConfirmacaoCozinha] = useState(false);
   const [mostrarResumoFechamento, setMostrarResumoFechamento] = useState(false);
   const [customizacaoItem, setCustomizacaoItem] = useState(null);
+  
+  // Novos estados para o fluxo QR Code
+  const [pedidosPendentes, setPedidosPendentes] = useState([]);
+  const [mostrarQRCode, setMostrarQRCode] = useState(false);
+  const [modoCliente, setModoCliente] = useState(false);
+  const [pedidoCliente, setPedidoCliente] = useState([]);
 
   // Cardápio do restaurante
   const cardapio = {
@@ -261,16 +271,19 @@ useEffect(() => {
   const listener = onValue(mesasRef, (snapshot) => {
     const data = snapshot.val();
     if (data) {
-      const mesasAtualizadas = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+      const mesasAtualizadas = Object.keys(data).map(key => ({ 
+        id: key, 
+        ...data[key],
+        pedidosPendentes: data[key].pedidosPendentes || []
+      }));
       setMesas(mesasAtualizadas);
       
-      // Atualiza a mesa selecionada se existir
       if (mesaSelecionada) {
         const mesaAtual = mesasAtualizadas.find(m => m.id === mesaSelecionada.id);
         if (mesaAtual) {
           setMesaSelecionada(mesaAtual);
-          // IMPORTANTE: Atualiza o pedido em andamento com os dados do Firebase
           setPedidoEmAndamento(mesaAtual.pedidos || []);
+          setPedidosPendentes(mesaAtual.pedidosPendentes || []);
         }
       }
     }
@@ -278,6 +291,261 @@ useEffect(() => {
   
   return () => off(mesasRef, 'value', listener);
 }, [mesaSelecionada?.id]);
+
+    // Função para gerar URL do QR Code
+    const gerarUrlQRCode = (mesaId) => {
+      return `${window.location.origin}/cliente?mesa=${mesaId}`;
+    };
+
+  
+// Função para adicionar pedido do cliente
+const adicionarPedidoCliente = async (pedido) => {
+  try {
+    const pedidoCompleto = {
+      itens: pedido,
+      hora: new Date().toISOString(),
+      status: 'pendente'
+    };
+
+    await update(ref(database, `mesas/${mesaSelecionada.id}/pedidosPendentes`), [
+      ...(mesaSelecionada.pedidosPendentes || []),
+      pedidoCompleto
+    ]);
+
+    mostrarNotificacao('Pedido enviado para aprovação do garçom');
+    setModoCliente(false);
+  } catch (error) {
+    console.error("Erro ao enviar pedido:", error);
+    mostrarNotificacao('Erro ao enviar pedido', 'erro');
+  }
+};
+
+    // Função para aprovar pedido do cliente
+// Funções para aprovar/rejeitar pedidos
+const aprovarPedido = async (pedidoIndex) => {
+  const pedido = pedidosPendentes[pedidoIndex];
+  const novosPedidos = [...mesaSelecionada.pedidos, ...pedido.itens];
+  
+  await update(ref(database, `mesas/${mesaSelecionada.id}`), {
+    pedidos: novosPedidos,
+    pedidosPendentes: pedidosPendentes.filter((_, i) => i !== pedidoIndex)
+  });
+};
+
+const rejeitarPedido = async (pedidoIndex) => {
+  await update(ref(database, `mesas/${mesaSelecionada.id}/pedidosPendentes`), 
+    pedidosPendentes.filter((_, i) => i !== pedidoIndex)
+  );
+};
+  
+    // Função para editar pedido do cliente
+    const editarPedido = (pedidoIndex) => {
+      setPedidoEmAndamento([
+        ...pedidoEmAndamento,
+        ...pedidosPendentes[pedidoIndex].itens
+      ]);
+      rejeitarPedido(pedidoIndex);
+    };
+
+  // Componente para mostrar pedidos pendentes
+  const PedidosPendentes = () => (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] flex flex-col">
+        <div className="p-4 border-b">
+          <h3 className="text-xl font-bold">Pedidos Pendentes - Mesa {mesaSelecionada.numero}</h3>
+        </div>
+        
+        <div className="overflow-y-auto flex-1 p-4">
+          {pedidosPendentes.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">Nenhum pedido pendente</div>
+          ) : (
+            <div className="space-y-4">
+              {pedidosPendentes.map((pedido, index) => (
+                <div key={index} className="border rounded-lg p-4">
+                  <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <span className="text-sm text-gray-500">
+                        {new Date(pedido.hora).toLocaleTimeString()}
+                      </span>
+                    </div>
+                    <div className="flex space-x-2">
+                      <button 
+                        onClick={() => aprovarPedido(index)}
+                        className="p-2 text-green-600 hover:bg-green-50 rounded-full"
+                      >
+                        Aprovar
+                      </button>
+                      <button 
+                        onClick={() => rejeitarPedido(index)}
+                        className="p-2 text-red-600 hover:bg-red-50 rounded-full"
+                      >
+                        Rejeitar
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-2 mt-2">
+                    {pedido.itens.map((item, itemIndex) => (
+                      <div key={itemIndex} className="flex justify-between">
+                        <div>
+                          <span className="font-medium">{item.quantidade}x {item.nome}</span>
+                          {item.observacoes && (
+                            <div className="text-xs text-gray-600">{item.observacoes}</div>
+                          )}
+                        </div>
+                        <span>€ {(item.preco * item.quantidade).toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        
+        <div className="p-4 border-t">
+          <button 
+            onClick={() => setPedidosPendentes([])}
+            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 px-4 rounded-lg"
+          >
+            Fechar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+   // Componente para mostrar QR Code
+   const ModalQRCode = () => (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl p-6 max-w-xs w-full">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-bold">QR Code - Mesa {mesaSelecionada.numero}</h3>
+          <button onClick={() => setMostrarQRCode(false)} className="text-gray-500 hover:text-gray-700">
+            <FiX size={24} />
+          </button>
+        </div>
+        
+        <div className="flex justify-center mb-4">
+          <QRCodeCanvas 
+            value={gerarUrlQRCode(mesaSelecionada.id)} 
+            size={200}
+            level="H"
+            includeMargin={true}
+          />
+        </div>
+        
+        <p className="text-sm text-gray-600 text-center mb-4">
+          Escaneie este QR Code para acessar o cardápio digital desta mesa
+        </p>
+      </div>
+    </div>
+  );
+
+  // Interface do Cliente (simplificada)
+  const InterfaceCliente = () => (
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-[#FFB501] p-4 shadow-sm">
+        <div className="container mx-auto flex justify-between items-center">
+          <h1 className="text-xl font-bold">Mesa {mesaSelecionada.numero}</h1>
+          <button 
+            onClick={() => setModoCliente(false)}
+            className="p-2 rounded-full bg-white bg-opacity-20"
+          >
+            <FiArrowLeft size={20} />
+          </button>
+        </div>
+      </header>
+      
+      <main className="container mx-auto p-4">
+        <div className="mb-6">
+          <div className="flex overflow-x-auto pb-2 mb-4 scrollbar-hide">
+            {Object.keys(cardapio).map(categoria => (
+              <button
+                key={categoria}
+                onClick={() => setCategoriaAtiva(categoria)}
+                className={`px-4 py-2 mr-2 rounded-full text-sm font-medium whitespace-nowrap ${
+                  categoriaAtiva === categoria ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-100'
+                }`}
+              >
+                {renderIconeCategoria(categoria)}
+                {categoria === 'churrasco' ? 'Churrasco' : 
+                 categoria === 'burgers' ? 'Burgers' :
+                 categoria === 'porcoes' ? 'Porções' :
+                 categoria.charAt(0).toUpperCase() + categoria.slice(1)}
+              </button>
+            ))}
+          </div>
+          
+          <div className="grid grid-cols-2 gap-3 mb-6">
+            {cardapio[categoriaAtiva].map(item => (
+              <button
+                key={item.id}
+                onClick={() => item.customizavel ? abrirCustomizacao(item) : adicionarItem(item, true)}
+                className="bg-[#57aed1] hover:bg-[#76bdda] text-[#3d1106] rounded-lg p-3 transition flex flex-col items-center text-center h-full"
+              >
+                <h3 className="font-medium text-sm mb-1">{item.nome}</h3>
+                <div className="mt-auto font-bold text-xs">€ {item.preco.toFixed(2)}</div>
+                {item.descricao && <div className="text-xs mt-1">{item.descricao}</div>}
+              </button>
+            ))}
+          </div>
+        </div>
+        
+        <div className="bg-white rounded-lg shadow-md p-4 sticky bottom-4">
+          <div className="max-h-40 overflow-y-auto mb-4">
+            {pedidoCliente.length === 0 ? (
+              <div className="text-center py-4 text-gray-500">Seu pedido está vazio</div>
+            ) : (
+              <div className="space-y-3">
+                {pedidoCliente.map((item, index) => (
+                  <div key={index} className="flex justify-between items-center">
+                    <div className="flex-1">
+                      <div className="font-medium text-sm">{item.quantidade}x {item.nome}</div>
+                      {item.observacoes && (
+                        <div className="text-xs text-gray-600">{item.observacoes}</div>
+                      )}
+                    </div>
+                    <div className="flex items-center ml-2">
+                      <span className="text-sm font-medium mr-3">€ {(item.preco * item.quantidade).toFixed(2)}</span>
+                      <button 
+                        onClick={() => {
+                          setPedidoCliente(pedidoCliente.filter((_, i) => i !== index));
+                        }}
+                        className="text-red-500 p-1"
+                      >
+                        <FiTrash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          
+          <div className="flex justify-between items-center mb-4">
+            <span className="font-semibold">Total:</span>
+            <span className="text-lg font-bold">
+              € {pedidoCliente.reduce((sum, item) => sum + (item.preco * item.quantidade), 0).toFixed(2)}
+            </span>
+          </div>
+          
+          <button
+            onClick={adicionarPedidoCliente}
+            disabled={pedidoCliente.length === 0}
+            className={`w-full py-3 px-4 rounded-lg flex items-center justify-center ${
+              pedidoCliente.length === 0 
+                ? 'bg-gray-300 cursor-not-allowed' 
+                : 'bg-green-600 hover:bg-green-700 text-white'
+            }`}
+          >
+            <FiCheck className="mr-2" /> Enviar Pedido
+          </button>
+        </div>
+      </main>
+    </div>
+  );
+
 
 useEffect(() => {
   if (mesaSelecionada?.horaAbertura) {
@@ -1292,7 +1560,7 @@ useEffect(() => {
 
   const renderTelaPedido = () => (
     <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-8">
-      <div className="p-4 text- black" style={{ backgroundColor: '#FFB501' }}>
+      <div className="p-4 text-black" style={{ backgroundColor: '#FFB501' }}>
         <div className="flex justify-between items-center">
           <div className="flex items-center">
             <button onClick={() => setMesaSelecionada(null)} className="p-1 mr-2 rounded-full hover:bg-white hover:bg-opacity-20">
@@ -1300,14 +1568,34 @@ useEffect(() => {
             </button>
             <h2 className="text-xl font-bold">Pedido - Mesa {mesaSelecionada.numero}</h2>
           </div>
-          <div className="flex items-center">
-            <span className="flex items-center mr-3 text-sm bg-white bg-opacity-20 px-2 py-1 rounded">
+          <div className="flex items-center space-x-2">
+            <button 
+              onClick={() => setMostrarQRCode(true)}
+              className="p-2 rounded-full bg-white bg-opacity-20 hover:bg-opacity-30"
+              title="Gerar QR Code"
+            >
+              <AiOutlineQrcode size={24} />
+
+            </button>
+            {pedidosPendentes.length > 0 && (
+              <button 
+                onClick={() => setPedidosPendentes(mesaSelecionada.pedidosPendentes || [])}
+                className="relative p-2 rounded-full bg-white bg-opacity-20 hover:bg-opacity-30"
+                title="Pedidos pendentes"
+              >
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                  {pedidosPendentes.length}
+                </span>
+                <FiUser size={18} />
+              </button>
+            )}
+            <span className="flex items-center text-sm bg-white bg-opacity-20 px-2 py-1 rounded">
               <FaClock className="mr-1" /> {tempoAtendimento}
             </span>
           </div>
         </div>
       </div>
-  
+
       <div className="p-4">
         <div className="flex overflow-x-auto pb-2 mb-4 scrollbar-hide">
           {Object.keys(cardapio).map(categoria => (
@@ -1453,6 +1741,12 @@ useEffect(() => {
     </div>
   );
 
+    // Renderização condicional
+    if (modoCliente) {
+      return <InterfaceCliente />;
+    }
+  
+
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800">
       <header className="bg-[#fff1e4] p-4 shadow-md" style={{ color: '#280b04' }}>
@@ -1473,6 +1767,8 @@ useEffect(() => {
           </div>
         )}
 
+        {mostrarQRCode && <ModalQRCode />}
+        {pedidosPendentes.length > 0 && <PedidosPendentes />}
         {mostrarConfirmacaoCozinha && <ModalConfirmacaoCozinha />}
         {mostrarResumoFechamento && <ResumoFechamento />}
         {customizacaoItem && <ModalCustomizacao />}
@@ -1481,10 +1777,6 @@ useEffect(() => {
         {telaAtiva === 'mesas' && !mesaSelecionada && renderTelaMesas()}
         {mesaSelecionada && renderTelaPedido()}
       </main>
-
-      <footer className="bg-gray-100 border-t p-4 text-center text-sm text-gray-600">
-        Cozinha da Vivi © {new Date().getFullYear()}
-      </footer>
     </div>
   );
 };
