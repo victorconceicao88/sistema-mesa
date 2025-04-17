@@ -583,7 +583,6 @@ useEffect(() => {
       mostrarNotificacao('Erro ao salvar pedido', 'erro');
     }
   };
-  
   const imprimirPedidoCozinha = async (novosItens) => {
     if (!navigator.bluetooth) {
       mostrarNotificacao('Seu navegador não suporta Bluetooth', 'erro');
@@ -597,7 +596,18 @@ useEffect(() => {
   
       if (itensCozinha.length === 0) return;
   
-      // Configurações ESC/POS
+      // Função para sanitizar texto (remove TUDO que não for ASCII básico)
+      const sanitize = (text) => {
+        return text
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '') // Remove acentos
+          .replace(/[^\x20-\x7E]/g, '')    // Mantém apenas ASCII imprimível
+          .replace(/[,.!?;:]/g, ' ')        // Substitui pontuação por espaço
+          .replace(/\s+/g, ' ')             // Remove espaços extras
+          .trim();
+      };
+  
+      // Configurações ESC/POS (apenas comandos básicos)
       const cmd = {
         init: new Uint8Array([0x1B, 0x40]),
         center: new Uint8Array([0x1B, 0x61, 0x01]),
@@ -606,7 +616,7 @@ useEffect(() => {
         boldOff: new Uint8Array([0x1B, 0x45, 0x00]),
         cut: new Uint8Array([0x1D, 0x56, 0x01]),
         lineBreak: new Uint8Array([0x0A]),
-        feed: new Uint8Array([0x1B, 0x64, 0x04]) // Avança 4 linhas
+        feed: new Uint8Array([0x1B, 0x64, 0x03])
       };
   
       // Conecta à impressora
@@ -629,50 +639,61 @@ useEffect(() => {
       await characteristic.writeValue(encoder.encode(`${formatTime(new Date())}\n\n`));
       await characteristic.writeValue(cmd.left);
       
-      // Itens do pedido
+      // Itens do pedido (com texto sanitizado)
       for (const item of itensCozinha) {
         await characteristic.writeValue(cmd.boldOn);
-        await characteristic.writeValue(encoder.encode(`${item.quantidade}x ${item.nome}\n`));
+        await characteristic.writeValue(encoder.encode(`${item.quantidade}x ${sanitize(item.nome)}\n`));
         await characteristic.writeValue(cmd.boldOff);
         
         if (item.observacoes) {
-          const obsLines = item.observacoes.split('|');
-          for (const line of obsLines) {
-            await characteristic.writeValue(encoder.encode(`- ${line.trim()}\n`));
+          const cleanObs = sanitize(item.observacoes);
+          const obsLines = cleanObs.split(' ');
+          let currentLine = '';
+          
+          // Quebra observações em linhas de até 24 caracteres
+          for (const word of obsLines) {
+            if ((currentLine + word).length > 24) {
+              await characteristic.writeValue(encoder.encode(` ${currentLine}\n`));
+              currentLine = word;
+            } else {
+              currentLine += (currentLine ? ' ' : '') + word;
+            }
+          }
+          if (currentLine) {
+            await characteristic.writeValue(encoder.encode(` ${currentLine}\n`));
           }
         }
         await characteristic.writeValue(cmd.lineBreak);
       }
   
-      // Rodapé limpo
-      await characteristic.writeValue(encoder.encode("--------------------\n"));
+      // Rodapé sanitizado
+      await characteristic.writeValue(encoder.encode("------------------------\n"));
       await characteristic.writeValue(cmd.center);
-      await characteristic.writeValue(encoder.encode("Pedido enviado:\n"));
-      await characteristic.writeValue(encoder.encode(`${formatDateTime(new Date())}\n`));
+      await characteristic.writeValue(encoder.encode("PEDIDO ENVIADO\n"));
+      await characteristic.writeValue(encoder.encode(`${formatDate(new Date())}\n`));
       
-      // Espaçamento final
+      // Espaçamento e corte
       await characteristic.writeValue(cmd.feed);
       await characteristic.writeValue(cmd.cut);
   
     } catch (error) {
-      console.error('Erro na impressão:', error);
+      console.error('Erro na impressao:', error);
       mostrarNotificacao('Erro ao imprimir', 'erro');
     }
   };
   
-  // Funções auxiliares
+  // Funções auxiliares sanitizadas
   const formatTime = (date) => {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      .replace(/[^0-9:]/g, '');
   };
   
-  const formatDateTime = (date) => {
-    return date.toLocaleString([], { 
+  const formatDate = (date) => {
+    return date.toLocaleDateString([], { 
       day: '2-digit', 
       month: '2-digit', 
-      year: 'numeric',
-      hour: '2-digit', 
-      minute: '2-digit'
-    });
+      year: 'numeric'
+    }).replace(/[^0-9/]/g, '');
   };
   // Função para enviar pedido para Firebase e imprimir
   const enviarPedidoParaFirebase = async () => {
