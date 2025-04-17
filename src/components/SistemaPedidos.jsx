@@ -1,12 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { FiCoffee, FiUser, FiPlus, FiMinus, FiTrash2, FiPrinter, FiCheck, FiX, FiArrowLeft, FiArrowRight} from 'react-icons/fi';
+import { FiCoffee, FiUser, FiPlus, FiMinus, FiTrash2, FiPrinter, FiCheck, FiX, FiArrowLeft, FiArrowRight } from 'react-icons/fi';
 import { FaUtensils, FaGlassCheers, FaIceCream, FaWineGlassAlt, FaClock } from 'react-icons/fa';
 import { initializeApp } from 'firebase/app';
-// eslint-disable-next-line
-import { getDatabase, ref, push, set, onValue, off, update } from 'firebase/database';
-
-
-
+import { getDatabase, ref, onValue, off, update } from 'firebase/database';
 
 const firebaseConfig = {
   apiKey: "AIzaSyBbJmwq5Ia68S3UPhnaUerEl0paRdXQNqM",
@@ -22,6 +18,7 @@ const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
 
 const SistemaPedidos = () => {
+  // States
   const [telaAtiva, setTelaAtiva] = useState('inicio');
   const [areaSelecionada, setAreaSelecionada] = useState(null);
   const [mesas, setMesas] = useState([]);
@@ -315,6 +312,8 @@ useEffect(() => {
     setTelaAtiva('mesas');
   };
 
+
+
   const selecionarMesa = async (mesa) => {
     // Se a mesa não está ocupada, marca como ocupada
     if (!mesa.ocupada) {
@@ -584,7 +583,98 @@ useEffect(() => {
       mostrarNotificacao('Erro ao salvar pedido', 'erro');
     }
   };
-
+  
+  const imprimirPedidoCozinha = async (novosItens) => {
+    if (!navigator.bluetooth) {
+      mostrarNotificacao('Seu navegador não suporta Bluetooth', 'erro');
+      return;
+    }
+  
+    try {
+      const itensCozinha = novosItens.filter(item => 
+        ['churrasco', 'burgers', 'porcoes', 'sobremesas'].includes(item.categoria)
+      );
+  
+      if (itensCozinha.length === 0) return;
+  
+      // Configurações ESC/POS
+      const cmd = {
+        init: new Uint8Array([0x1B, 0x40]),
+        center: new Uint8Array([0x1B, 0x61, 0x01]),
+        left: new Uint8Array([0x1B, 0x61, 0x00]),
+        boldOn: new Uint8Array([0x1B, 0x45, 0x01]),
+        boldOff: new Uint8Array([0x1B, 0x45, 0x00]),
+        cut: new Uint8Array([0x1D, 0x56, 0x01]),
+        lineBreak: new Uint8Array([0x0A]),
+        feed: new Uint8Array([0x1B, 0x64, 0x04]) // Avança 4 linhas
+      };
+  
+      // Conecta à impressora
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [{ name: "BlueTooth Printer" }],
+        optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb']
+      });
+  
+      const server = await device.gatt.connect();
+      const service = await server.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb');
+      const characteristic = await service.getCharacteristic('00002af1-0000-1000-8000-00805f9b34fb');
+      const encoder = new TextEncoder();
+  
+      // Sequência de impressão
+      await characteristic.writeValue(cmd.init);
+      await characteristic.writeValue(cmd.center);
+      await characteristic.writeValue(cmd.boldOn);
+      await characteristic.writeValue(encoder.encode("COZINHA\n"));
+      await characteristic.writeValue(encoder.encode(`MESA ${mesaSelecionada.numero}\n`));
+      await characteristic.writeValue(encoder.encode(`${formatTime(new Date())}\n\n`));
+      await characteristic.writeValue(cmd.left);
+      
+      // Itens do pedido
+      for (const item of itensCozinha) {
+        await characteristic.writeValue(cmd.boldOn);
+        await characteristic.writeValue(encoder.encode(`${item.quantidade}x ${item.nome}\n`));
+        await characteristic.writeValue(cmd.boldOff);
+        
+        if (item.observacoes) {
+          const obsLines = item.observacoes.split('|');
+          for (const line of obsLines) {
+            await characteristic.writeValue(encoder.encode(`- ${line.trim()}\n`));
+          }
+        }
+        await characteristic.writeValue(cmd.lineBreak);
+      }
+  
+      // Rodapé limpo
+      await characteristic.writeValue(encoder.encode("--------------------\n"));
+      await characteristic.writeValue(cmd.center);
+      await characteristic.writeValue(encoder.encode("Pedido enviado:\n"));
+      await characteristic.writeValue(encoder.encode(`${formatDateTime(new Date())}\n`));
+      
+      // Espaçamento final
+      await characteristic.writeValue(cmd.feed);
+      await characteristic.writeValue(cmd.cut);
+  
+    } catch (error) {
+      console.error('Erro na impressão:', error);
+      mostrarNotificacao('Erro ao imprimir', 'erro');
+    }
+  };
+  
+  // Funções auxiliares
+  const formatTime = (date) => {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+  
+  const formatDateTime = (date) => {
+    return date.toLocaleString([], { 
+      day: '2-digit', 
+      month: '2-digit', 
+      year: 'numeric',
+      hour: '2-digit', 
+      minute: '2-digit'
+    });
+  };
+  // Função para enviar pedido para Firebase e imprimir
   const enviarPedidoParaFirebase = async () => {
     try {
       // Filtra apenas itens não enviados
@@ -598,34 +688,38 @@ useEffect(() => {
         return;
       }
   
+      // Atualiza no Firebase
       const mesaAtualizada = {
         ...mesaSelecionada,
-        pedidos: [
-          ...mesaSelecionada.pedidos.filter(item => item.enviado), // Mantém só os já enviados
-          ...novosItens // Adiciona os novos
-        ],
+        pedidos: [...mesaSelecionada.pedidos.filter(i => i.enviado), ...novosItens],
         itensCozinha: [
-          ...(mesaSelecionada.itensCozinha || []).filter(item => item.enviado),
-          ...novosItens.filter(item => item.categoria !== 'bebidas')
+          ...(mesaSelecionada.itensCozinha || []).filter(i => i.enviado),
+          ...novosItens.filter(i => ['churrasco', 'burgers', 'porcoes', 'sobremesas'].includes(i.categoria))
         ],
         itensBar: [
-          ...(mesaSelecionada.itensBar || []).filter(item => item.enviado),
-          ...novosItens.filter(item => item.categoria === 'bebidas')
+          ...(mesaSelecionada.itensBar || []).filter(i => i.enviado),
+          ...novosItens.filter(i => i.categoria === 'bebidas')
         ]
       };
   
       await update(ref(database, `mesas/${mesaSelecionada.id}`), mesaAtualizada);
       
+      // Atualiza estado local
       setMesaSelecionada(mesaAtualizada);
       setPedidoEmAndamento(mesaAtualizada.pedidos);
+      
+      // Envia para impressão APENAS os novos itens da cozinha
+      await imprimirPedidoCozinha(novosItens);
+      
       setMostrarConfirmacaoCozinha(false);
-      mostrarNotificacao(`Pedido enviado - Mesa ${mesaSelecionada.numero}`);
-  
+      
     } catch (error) {
       console.error("Erro ao enviar pedido:", error);
       mostrarNotificacao('Erro ao enviar pedido', 'erro');
     }
   };
+
+
   const fecharConta = async () => {
     try {
       if (!mostrarResumoFechamento) {
