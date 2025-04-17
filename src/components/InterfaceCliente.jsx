@@ -1,11 +1,17 @@
 // InterfaceCliente.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { FiArrowLeft, FiPlus, FiMinus, FiTrash2, FiCheck } from 'react-icons/fi';
 import { FaUtensils, FaGlassCheers, FaIceCream, FaWineGlassAlt } from 'react-icons/fa';
+import { useSearchParams } from 'react-router-dom';
 
-const InterfaceCliente = ({ mesa, cardapio, onEnviarPedido, onVoltar }) => {
-  const [categoriaAtiva, setCategoriaAtiva] = useState('churrasco');
+const InterfaceCliente = ({ onEnviarPedido, onVoltar }) => {
+  const [searchParams] = useSearchParams();
+  const mesaNumero = searchParams.get('mesa');
+  const cardapio = JSON.parse(decodeURIComponent(searchParams.get('cardapio')));
+
+  // ✅ Estados necessários
   const [pedidoCliente, setPedidoCliente] = useState([]);
+  const [categoriaAtiva, setCategoriaAtiva] = useState(Object.keys(cardapio)[0]);
   const [customizacaoItem, setCustomizacaoItem] = useState(null);
 
   const adicionarItem = (item) => {
@@ -51,11 +57,68 @@ const InterfaceCliente = ({ mesa, cardapio, onEnviarPedido, onVoltar }) => {
     }
   };
 
+  // ✅ Modal de customização
+  const ModalCustomizacao = ({ item, onClose, onConfirm }) => {
+    const [opcoes, setOpcoes] = useState(item.opcoes || {});
+
+    const toggleOpcao = (grupo, index) => {
+      const novasOpcoes = { ...opcoes };
+      novasOpcoes[grupo][index].selecionado = !novasOpcoes[grupo][index].selecionado;
+      setOpcoes(novasOpcoes);
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-4 max-w-md w-full">
+          <h3 className="text-lg font-bold mb-2">{item.nome}</h3>
+          
+          {Object.entries(opcoes).map(([grupo, itens]) => (
+            <div key={grupo} className="mb-4">
+              <h4 className="font-medium capitalize">{grupo}</h4>
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                {itens.map((opcao, i) => (
+                  <label key={i} className="flex items-center">
+                    <input
+                      type={grupo === 'carnes' ? 'checkbox' : 'radio'}
+                      checked={opcao.selecionado}
+                      onChange={() => toggleOpcao(grupo, i)}
+                      className="mr-2"
+                    />
+                    {opcao.nome}
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          <div className="flex justify-end space-x-2 mt-4">
+            <button onClick={onClose} className="px-3 py-1 bg-gray-200 rounded">
+              Cancelar
+            </button>
+            <button 
+              onClick={() => onConfirm({
+                ...item,
+                observacoes: Object.entries(opcoes)
+                  .flatMap(([grupo, itens]) => 
+                    itens.filter(o => o.selecionado).map(o => `${grupo}: ${o.nome}`)
+                  )
+                  .join(', ')
+              })}
+              className="px-3 py-1 bg-green-500 text-white rounded"
+            >
+              Confirmar
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-[#FFB501] p-4 shadow-sm">
         <div className="container mx-auto flex justify-between items-center">
-          <h1 className="text-xl font-bold">Mesa {mesa.numero}</h1>
+          <h1 className="text-xl font-bold">Mesa {mesaNumero}</h1>
           <button 
             onClick={onVoltar}
             className="p-2 rounded-full bg-white bg-opacity-20"
@@ -149,6 +212,18 @@ const InterfaceCliente = ({ mesa, cardapio, onEnviarPedido, onVoltar }) => {
           </button>
         </div>
       </main>
+
+      {/* ✅ Renderiza o modal se necessário */}
+      {customizacaoItem && (
+        <ModalCustomizacao 
+          item={customizacaoItem}
+          onClose={() => setCustomizacaoItem(null)}
+          onConfirm={(itemCustomizado) => {
+            adicionarItem(itemCustomizado);
+            setCustomizacaoItem(null);
+          }}
+        />
+      )}
     </div>
   );
 };

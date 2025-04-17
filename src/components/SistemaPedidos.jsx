@@ -294,7 +294,7 @@ useEffect(() => {
 
     // Função para gerar URL do QR Code
     const gerarUrlQRCode = (mesaId) => {
-      return `${window.location.origin}/cliente?mesa=${mesaId}`;
+      return `${window.location.origin}/cliente?mesa=${mesaId}&cardapio=${encodeURIComponent(JSON.stringify(cardapio))}`;
     };
 
   
@@ -320,7 +320,6 @@ const adicionarPedidoCliente = async (pedido) => {
   }
 };
 
-    // Função para aprovar pedido do cliente
 // Funções para aprovar/rejeitar pedidos
 const aprovarPedido = async (pedidoIndex) => {
   const pedido = pedidosPendentes[pedidoIndex];
