@@ -197,16 +197,16 @@ const InterfaceCliente = ({ cardapio, onEnviarPedido, onVoltar }) => {
           </div>
           
           <button
-            onClick={() => onEnviarPedido(pedidoCliente)}
-            disabled={pedidoCliente.length === 0}
-            className={`w-full py-3 px-4 rounded-lg flex items-center justify-center ${
-              pedidoCliente.length === 0 
-                ? 'bg-gray-300 cursor-not-allowed' 
-                : 'bg-green-600 hover:bg-green-700 text-white'
-            }`}
-          >
-            <FiCheck className="mr-2" /> Enviar Pedido
-          </button>
+          onClick={() => onEnviarPedido(pedidoCliente)}
+          disabled={pedidoCliente.length === 0}
+          className={`w-full py-3 px-4 rounded-lg flex items-center justify-center ${
+            pedidoCliente.length === 0 
+              ? 'bg-gray-300 cursor-not-allowed' 
+              : 'bg-green-600 hover:bg-green-700 text-white'
+          }`}
+        >
+          <FiCheck className="mr-2" /> Enviar Pedido
+        </button>
         </div>
       </main>
 

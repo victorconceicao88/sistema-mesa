@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { FiCoffee, FiUser, FiPlus, FiMinus, FiTrash2, FiPrinter, FiCheck, FiX, FiArrowLeft, FiArrowRight,} from 'react-icons/fi';
 import { FaUtensils, FaGlassCheers, FaIceCream, FaWineGlassAlt, FaClock, FaRegCheckCircle, FaRegTimesCircle, FaEdit } from 'react-icons/fa';
 import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, onValue, off, update } from 'firebase/database';
+import { getDatabase, ref, onValue, off, update,get } from 'firebase/database';
 import { QRCodeCanvas } from 'qrcode.react';
 import { AiOutlineQrcode } from 'react-icons/ai';
+
 
 
 
@@ -303,16 +304,27 @@ useEffect(() => {
 // Função para adicionar pedido do cliente
 const adicionarPedidoCliente = async (pedido) => {
   try {
+    if (!mesaSelecionada?.id) {
+      mostrarNotificacao('Nenhuma mesa selecionada', 'erro');
+      return;
+    }
+
     const pedidoCompleto = {
       itens: pedido,
       hora: new Date().toISOString(),
       status: 'pendente'
     };
 
-    await update(ref(database, `mesas/${mesaSelecionada.id}/pedidosPendentes`), [
-      ...(mesaSelecionada.pedidosPendentes || []),
-      pedidoCompleto
-    ]);
+    // Obter os pedidos pendentes atuais
+    const mesaRef = ref(database, `mesas/${mesaSelecionada.id}`);
+    const snapshot = await get(mesaRef);
+    const mesaData = snapshot.val() || {};
+    const pedidosPendentesAtuais = mesaData.pedidosPendentes || [];
+
+    // Adicionar novo pedido
+    await update(mesaRef, {
+      pedidosPendentes: [...pedidosPendentesAtuais, pedidoCompleto]
+    });
 
     mostrarNotificacao('Pedido enviado para aprovação do garçom');
     setModoCliente(false);
@@ -321,7 +333,6 @@ const adicionarPedidoCliente = async (pedido) => {
     mostrarNotificacao('Erro ao enviar pedido', 'erro');
   }
 };
-
 // Funções para aprovar/rejeitar pedidos
 const aprovarPedido = async (pedidoIndex) => {
   const pedido = pedidosPendentes[pedidoIndex];
@@ -1744,7 +1755,13 @@ useEffect(() => {
 
     // Renderização condicional
     if (modoCliente) {
-      return <InterfaceCliente />;
+      return (
+        <InterfaceCliente 
+          cardapio={cardapio}
+          onEnviarPedido={adicionarPedidoCliente}
+          onVoltar={() => setModoCliente(false)}
+        />
+      );
     }
   
 
