@@ -4,12 +4,10 @@ import { FiArrowLeft, FiPlus, FiMinus, FiTrash2, FiCheck } from 'react-icons/fi'
 import { FaUtensils, FaGlassCheers, FaIceCream, FaWineGlassAlt } from 'react-icons/fa';
 import { useSearchParams } from 'react-router-dom';
 
-const InterfaceCliente = ({ onEnviarPedido, onVoltar }) => {
+const InterfaceCliente = ({ cardapio, onEnviarPedido, onVoltar }) => {
   const [searchParams] = useSearchParams();
-  const mesaNumero = searchParams.get('mesa');
-  const cardapio = JSON.parse(decodeURIComponent(searchParams.get('cardapio')));
+  const mesaNumero = searchParams.get('mesa') || 1;
 
-  // ✅ Estados necessários
   const [pedidoCliente, setPedidoCliente] = useState([]);
   const [categoriaAtiva, setCategoriaAtiva] = useState(Object.keys(cardapio)[0]);
   const [customizacaoItem, setCustomizacaoItem] = useState(null);
@@ -57,7 +55,6 @@ const InterfaceCliente = ({ onEnviarPedido, onVoltar }) => {
     }
   };
 
-  // ✅ Modal de customização
   const ModalCustomizacao = ({ item, onClose, onConfirm }) => {
     const [opcoes, setOpcoes] = useState(item.opcoes || {});
 
@@ -213,7 +210,6 @@ const InterfaceCliente = ({ onEnviarPedido, onVoltar }) => {
         </div>
       </main>
 
-      {/* ✅ Renderiza o modal se necessário */}
       {customizacaoItem && (
         <ModalCustomizacao 
           item={customizacaoItem}

@@ -23,25 +23,26 @@ const database = getDatabase(app);
 
 const SistemaPedidos = () => {
   // Estados existentes
-  const [telaAtiva, setTelaAtiva] = useState('inicio');
-  const [areaSelecionada, setAreaSelecionada] = useState(null);
-  const [mesas, setMesas] = useState([]);
-  const [mesaSelecionada, setMesaSelecionada] = useState(null);
-  const [categoriaAtiva, setCategoriaAtiva] = useState('churrasco');
-  const [pedidoEmAndamento, setPedidoEmAndamento] = useState([]);
-  const [totalConta, setTotalConta] = useState(0);
-  const [notificacao, setNotificacao] = useState({ mostrar: false, mensagem: '', tipo: '' });
-  const [tempoAtendimento, setTempoAtendimento] = useState('00:00');
-  const [abaPedidosAtiva, setAbaPedidosAtiva] = useState('todos');
-  const [mostrarConfirmacaoCozinha, setMostrarConfirmacaoCozinha] = useState(false);
-  const [mostrarResumoFechamento, setMostrarResumoFechamento] = useState(false);
-  const [customizacaoItem, setCustomizacaoItem] = useState(null);
+  // Estados existentes
+  const [telaAtiva, setTelaAtiva] = useState('inicio'); // A tela ativa (início, categoria, etc.)
+  const [areaSelecionada, setAreaSelecionada] = useState(null); // Área selecionada (ex: mesas, churrasco, etc.)
+  const [mesas, setMesas] = useState([]); // Listagem das mesas
+  const [mesaSelecionada, setMesaSelecionada] = useState(null); // Mesa selecionada
+  const [categoriaAtiva, setCategoriaAtiva] = useState('churrasco'); // Categoria ativa (churrasco, burgers, etc.)
+  const [pedidoEmAndamento, setPedidoEmAndamento] = useState([]); // Itens do pedido atual
+  const [totalConta, setTotalConta] = useState(0); // Total da conta
+  const [notificacao, setNotificacao] = useState({ mostrar: false, mensagem: '', tipo: '' }); // Notificação
+  const [tempoAtendimento, setTempoAtendimento] = useState('00:00'); // Tempo de atendimento
+  const [abaPedidosAtiva, setAbaPedidosAtiva] = useState('todos'); // Aba ativa de pedidos
+  const [mostrarConfirmacaoCozinha, setMostrarConfirmacaoCozinha] = useState(false); // Mostrar confirmação para cozinha
+  const [mostrarResumoFechamento, setMostrarResumoFechamento] = useState(false); // Mostrar resumo de fechamento
+  const [customizacaoItem, setCustomizacaoItem] = useState(null); // Item sendo customizado
   
   // Novos estados para o fluxo QR Code
-  const [pedidosPendentes, setPedidosPendentes] = useState([]);
-  const [mostrarQRCode, setMostrarQRCode] = useState(false);
-  const [modoCliente, setModoCliente] = useState(false);
-  const [pedidoCliente, setPedidoCliente] = useState([]);
+  const [pedidosPendentes, setPedidosPendentes] = useState([]); // Pedidos pendentes (para exibir na tela)
+  const [mostrarQRCode, setMostrarQRCode] = useState(false); // Controla se o QR Code deve ser exibido
+  const [modoCliente, setModoCliente] = useState(false); // Verifica se o sistema está no modo cliente
+  const [pedidoCliente, setPedidoCliente] = useState([]); // Pedido feito pelo cliente (para armazenar e manipular)
 
   // Cardápio do restaurante
   const cardapio = {
